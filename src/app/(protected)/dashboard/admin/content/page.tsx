@@ -1,747 +1,619 @@
-/*eslint-disable  @typescript-eslint/no-explicit-any */
+/*eslint-disable @typescript-eslint/no-explicit-any */
+/*eslint-disable @typescript-eslint/no-unused-vars */
 // src/components/dashboard/admin/ContentModeration.tsx
 "use client";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
+  Dialog, DialogContent, DialogDescription,
+  DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import {
-  AlertCircle,
-  Calendar,
-  CalendarIcon,
-  Check,
-  Eye,
-  FileText,
-  Filter,
-  RefreshCw,
-  Search,
-  Trash2,
-  X
+  AlertCircle, ArrowRight, BookOpen, Calendar, CalendarIcon,
+  Check, Eye, FileText, Filter, RefreshCw, Search,
+  Trash2, X, XCircle,
 } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-// import { toast } from "@/components/ui/use-toast";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-interface ContentItem {
-  id: string;
-  title: string;
-  slug: string;
-  summary: string;
-  content: string;
-  contentType: string;
-  status: string;
-  publishedAt: string | null;
-  scheduledPublishAt: string | null
-  featuredImage: string;
-  viewCount: number;
-  likeCount: number;
-  commentCount: number;
-  isFeatured: boolean;
-  isTrending: boolean;
-  createdAt: string;
-  author: {
-    id: string;
-    name: string;
-    slug: string;
-    avatar: string | null;
-  };
-  category: {
-    id: string;
-    name: string;
-    slug: string;
-  };
-  tags: Array<{
-    id: string;
-    name: string;
-    slug: string;
-  }>;
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
+// Matches /api/admin/content GET response shape
+type ContentItem = {
+  id:           string;
+  title:        string;
+  slug:         string;
+  summary:      string | null;
+  contentType:  string;
+  status:       string;
+  featuredImage:string | null;
+  readingTime:  number | null;
+  publishedAt:  string | null;
+  createdAt:    string;
+  authorName:   string | null;
+  categoryName: string | null;
+  creatorName:  string | null;
+};
+
+// Matches /api/admin/content/[id] GET response shape (full detail for preview)
+type ContentDetail = ContentItem & {
+  content:    string;
+  categoryId: string | null;
+  externalUrl:string | null;
+  tags: { id: string; name: string; slug: string }[];
+};
+
+type Pagination = {
+  page: number; limit: number;
+  total: number; totalPages: number;
+};
+
+// Content/status enums matching schema
+const CONTENT_TYPES = ["BLOG","NEWS","ENTRECHAT","EVENT","PRESS","SUCCESS_STORY","RESOURCE"] as const;
+const STATUSES      = ["PENDING","PUBLISHED","DRAFT","REJECTED"] as const;
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  return format(new Date(iso), "MMM d, yyyy");
 }
 
-interface Pagination {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-  hasNext: boolean;
-  hasPrev: boolean;
+function formatDateTime(iso: string): string {
+  return format(new Date(iso), "PPpp");
 }
 
-interface FilterParams {
-  status: string;
-  contentType: string;
-  author: string;
-  category: string;
-  search: string;
-  dateFrom: string;
-  dateTo: string;
+const STATUS_STYLES: Record<string, string> = {
+  PUBLISHED: "bg-green-100 text-green-800 border-green-200",
+  PENDING:   "bg-amber-100 text-amber-800 border-amber-200",
+  DRAFT:     "bg-secondary text-muted-foreground border-border",
+  REJECTED:  "bg-red-100 text-red-800 border-red-200",
+};
+
+const TYPE_STYLES: Record<string, string> = {
+  BLOG:          "bg-purple-100 text-purple-800",
+  NEWS:          "bg-blue-100 text-blue-800",
+  ENTRECHAT:     "bg-pink-100 text-pink-800",
+  SUCCESS_STORY: "bg-emerald-100 text-emerald-800",
+  RESOURCE:      "bg-indigo-100 text-indigo-800",
+  EVENT:         "bg-orange-100 text-orange-800",
+  PRESS:         "bg-cyan-100 text-cyan-800",
+};
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <span className={cn(
+      "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border capitalize",
+      STATUS_STYLES[status] ?? "bg-secondary text-muted-foreground border-border"
+    )}>
+      {status.toLowerCase()}
+    </span>
+  );
 }
+
+function TypeBadge({ type }: { type: string }) {
+  return (
+    <span className={cn(
+      "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize",
+      TYPE_STYLES[type] ?? "bg-secondary text-muted-foreground"
+    )}>
+      {type.toLowerCase().replace("_", " ")}
+    </span>
+  );
+}
+
+// ─── Main component ─────────────────────────────────────────────────────────────
 
 export default function ContentModeration() {
-  // const router = useRouter();
   const searchParams = useSearchParams();
-  
-  const [content, setContent] = useState<ContentItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [pagination, setPagination] = useState<Pagination>({
-    page: 1,
-    limit: 10,
-    total: 0,
-    totalPages: 0,
-    hasNext: false,
-    hasPrev: false,
-  });
-  
-  const [filters, setFilters] = useState<FilterParams>({
-    status: searchParams.get('status') || 'PENDING',
-    contentType: searchParams.get('type') || '',
-    author: searchParams.get('author') || '',
-    category: searchParams.get('category') || '',
-    search: searchParams.get('search') || '',
-    dateFrom: searchParams.get('dateFrom') || '',
-    dateTo: searchParams.get('dateTo') || '',
-  });
-  
-  const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [rejectOpen, setRejectOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date>();
-  const [rejectReason, setRejectReason] = useState('');
+
+  // ── Filter state ────────────────────────────────────────────────────────────
+  const [status,       setStatus]       = useState(searchParams.get("status") ?? "PENDING");
+  const [contentType,  setContentType]  = useState(searchParams.get("type")   ?? "");
+  const [search,       setSearch]       = useState(searchParams.get("search") ?? "");
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const [dateFrom,     setDateFrom]     = useState("");
+  const [dateTo,       setDateTo]       = useState("");
+  const [page,         setPage]         = useState(1);
+
+  // ── Data state ──────────────────────────────────────────────────────────────
+  const [items,       setItems]      = useState<ContentItem[]>([]);
+  const [pagination,  setPagination] = useState<Pagination>({ page:1, limit:20, total:0, totalPages:0 });
+  const [categories,  setCategories] = useState<{ id:string; name:string; slug:string }[]>([]);
+
+  // ── Loading / action state ──────────────────────────────────────────────────
+  const [loading,    setLoading]    = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
-  
-  const [authors, setAuthors] = useState<Array<{id: string, name: string}>>([]);
-  const [categories, setCategories] = useState<Array<{id: string, name: string}>>([]);
-  
+  const [error,      setError]      = useState(false);
+
+  // ── Dialog state ────────────────────────────────────────────────────────────
+  const [previewItem,   setPreviewItem]   = useState<ContentDetail | null>(null);
+  const [previewOpen,   setPreviewOpen]   = useState(false);
+  const [previewLoading,setPreviewLoading]= useState(false);
+  const [scheduleItem,  setScheduleItem]  = useState<ContentItem | null>(null);
+  const [scheduleOpen,  setScheduleOpen]  = useState(false);
+  const [scheduleDate,  setScheduleDate]  = useState<Date | undefined>();
+  const [rejectItem,    setRejectItem]    = useState<ContentItem | null>(null);
+  const [rejectOpen,    setRejectOpen]    = useState(false);
+  const [rejectReason,  setRejectReason]  = useState("");
+  const [deleteItem,    setDeleteItem]    = useState<ContentItem | null>(null);
+  const [deleteOpen,    setDeleteOpen]    = useState(false);
+  const [toast,         setToast]         = useState<{ msg:string; type:"success"|"error" } | null>(null);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef    = useRef<AbortController | null>(null);
+
+  // ── Toast helper ────────────────────────────────────────────────────────────
+  const showToast = (msg: string, type: "success"|"error" = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // ── Debounce search ─────────────────────────────────────────────────────────
   useEffect(() => {
-    fetchContent();
-    fetchAuthors();
-    fetchCategories();
-  }, [filters, pagination.page]);
-  
-  const fetchContent = async () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [search]);
+
+  // ── Reset page when filters change ─────────────────────────────────────────
+  useEffect(() => { setPage(1); }, [status, contentType, dateFrom, dateTo]);
+
+  // ── Fetch categories once (bundled from /api/content?meta=1) ───────────────
+  useEffect(() => {
+    fetch("/api/content?meta=1&contentType=BLOG")
+      .then((r) => r.json())
+      .then((d) => { if (d.categories) setCategories(d.categories); })
+      .catch(() => {});
+  }, []);
+
+  // ── Fetch content list ──────────────────────────────────────────────────────
+  const fetchContent = useCallback(async () => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    setLoading(true);
+    setError(false);
+
     try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      const params = new URLSearchParams({
-        page: pagination.page.toString(),
-        limit: pagination.limit.toString(),
-        ...filters
+      const sp = new URLSearchParams({ page: String(page), limit: "20" });
+      if (status)          sp.set("status",      status);
+      if (contentType)     sp.set("contentType", contentType);
+      if (debouncedSearch) sp.set("search",      debouncedSearch);
+      if (dateFrom)        sp.set("dateFrom",    dateFrom);
+      if (dateTo)          sp.set("dateTo",      dateTo);
+
+      const res = await fetch(`/api/admin/content?${sp}`, {
+        signal: abortRef.current.signal,
       });
-      
-      const response = await fetch(`/api/content?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setContent(data.data || []);
-        setPagination(data.pagination || {
-          page: 1,
-          limit: 10,
-          total: 0,
-          totalPages: 0,
-          hasNext: false,
-          hasPrev: false,
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching content:', error);
-      // toast({
-      //   title: "Error",
-      //   description: "Failed to load content",
-      //   variant: "destructive",
-      // });
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+
+      setItems(data.data ?? []);
+      setPagination(data.pagination ?? { page:1, limit:20, total:0, totalPages:0 });
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      setError(true);
     } finally {
       setLoading(false);
     }
-  };
-  
-  const fetchAuthors = async () => {
+  }, [page, status, contentType, debouncedSearch, dateFrom, dateTo]);
+
+  useEffect(() => { fetchContent(); }, [fetchContent]);
+
+  // ── Open preview — fetch full detail including content HTML ────────────────
+  const openPreview = async (item: ContentItem) => {
+    setPreviewOpen(true);
+    setPreviewLoading(true);
     try {
-      const response = await fetch('/api/authors');
-      const data = await response.json();
-      if (data.success) {
-        setAuthors(data.data || []);
-      }
-    } catch (error) {
-      console.error('Error fetching authors:', error);
+      const res = await fetch(`/api/admin/content/${item.id}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setPreviewItem(data.data);
+    } catch {
+      showToast("Failed to load content detail", "error");
+      setPreviewOpen(false);
+    } finally {
+      setPreviewLoading(false);
     }
   };
-  
-  const fetchCategories = async () => {
+
+  // ── Actions ─────────────────────────────────────────────────────────────────
+
+  const patchContent = async (id: string, body: object): Promise<boolean> => {
+    setProcessing(id);
     try {
-      const response = await fetch('/api/categories');
-      const data = await response.json();
-      if (data.success) {
-        setCategories(data.data || []);
-      }
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-    }
-  };
-  
-  const handleFilterChange = (key: keyof FilterParams, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-    setPagination(prev => ({ ...prev, page: 1 }));
-  };
-  
-  const handlePageChange = (page: number) => {
-    setPagination(prev => ({ ...prev, page }));
-  };
-  
-  const handlePublish = async (contentId: string, publishNow: boolean = true, scheduledDate?: Date) => {
-    try {
-      setProcessing(contentId);
-      const token = localStorage.getItem('token');
-      
-      const updateData: any = {
-        status: 'PUBLISHED',
-      };
-      
-      if (publishNow) {
-        updateData.publishedAt = new Date().toISOString();
-      } else if (scheduledDate) {
-        updateData.scheduledPublishAt = scheduledDate.toISOString();
-        updateData.status = 'PENDING'; // Keep as pending until scheduled time
-      }
-      
-      const response = await fetch(`/api/content/${contentId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updateData),
+      const res = await fetch(`/api/admin/content/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        // toast({
-        //   title: "Success",
-        //   description: publishNow 
-        //     ? "Content published successfully!" 
-        //     : "Content scheduled for publishing!",
-        // });
-        fetchContent();
-        setScheduleOpen(false);
-        setSelectedDate(undefined);
-      } else {
-        // toast({
-        //   title: "Error",
-        //   description: data.error || "Failed to publish content",
-        //   variant: "destructive",
-        // });
-        console.log(data.error)
-      }
-    } catch (error) {
-      console.error('Error publishing content:', error);
-      // toast({
-      //   title: "Error",
-      //   description: "An error occurred while publishing",
-      //   variant: "destructive",
-      // });
+      if (!res.ok) throw new Error();
+      return true;
+    } catch {
+      return false;
     } finally {
       setProcessing(null);
     }
   };
-  
-  const handleReject = async (contentId: string) => {
-    if (!rejectReason.trim()) {
-      // toast({
-      //   title: "Validation Error",
-      //   description: "Please provide a reason for rejection",
-      //   variant: "destructive",
-      // });
-      return;
+
+  const handlePublishNow = async (item: ContentItem) => {
+    const ok = await patchContent(item.id, { status: "PUBLISHED" });
+    if (ok) { showToast(`"${item.title}" published`); fetchContent(); }
+    else      showToast("Failed to publish", "error");
+  };
+
+  const handleSchedule = async () => {
+    if (!scheduleItem || !scheduleDate) return;
+    // Keep PENDING status — real scheduler would flip it; for now just store publishedAt
+    const ok = await patchContent(scheduleItem.id, {
+      publishedAt: scheduleDate.toISOString(),
+      status: "PENDING",
+    });
+    if (ok) {
+      showToast(`Scheduled for ${format(scheduleDate, "PPP p")}`);
+      setScheduleOpen(false);
+      setScheduleDate(undefined);
+      fetchContent();
+    } else {
+      showToast("Failed to schedule", "error");
     }
-    
+  };
+
+  const handleReject = async () => {
+    if (!rejectItem || !rejectReason.trim()) return;
+    const ok = await patchContent(rejectItem.id, {
+      status: "REJECTED",
+      summary: rejectItem.summary, // preserve — API needs existing fields
+    });
+    if (ok) {
+      showToast(`"${rejectItem.title}" rejected`);
+      setRejectOpen(false);
+      setRejectReason("");
+      fetchContent();
+    } else {
+      showToast("Failed to reject", "error");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteItem) return;
+    setProcessing(deleteItem.id);
     try {
-      setProcessing(contentId);
-      const token = localStorage.getItem('token');
-      
-      const response = await fetch(`/api/content/${contentId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: 'REJECTED',
-          reviewNotes: rejectReason,
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        // toast({
-        //   title: "Content Rejected",
-        //   description: "The content has been rejected with your notes",
-        // });
-        fetchContent();
-        setRejectOpen(false);
-        setRejectReason('');
-      }
-    } catch (error) {
-      console.error('Error rejecting content:', error);
-      // toast({
-      //   title: "Error",
-      //   description: "Failed to reject content",
-      //   variant: "destructive",
-      // });
+      const res = await fetch(`/api/admin/content/${deleteItem.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      showToast(`"${deleteItem.title}" deleted`);
+      setDeleteOpen(false);
+      fetchContent();
+    } catch {
+      showToast("Failed to delete", "error");
     } finally {
       setProcessing(null);
     }
   };
-  
-  const handleArchive = async (contentId: string) => {
-    try {
-      setProcessing(contentId);
-      const token = localStorage.getItem('token');
-      
-      const response = await fetch(`/api/content/${contentId}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: 'ARCHIVED',
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        // toast({
-        //   title: "Content Archived",
-        //   description: "The content has been archived",
-        // });
-        fetchContent();
-      }
-    } catch (error) {
-      console.error('Error archiving content:', error);
-      // toast({
-      //   title: "Error",
-      //   description: "Failed to archive content",
-      //   variant: "destructive",
-      // });
-    } finally {
-      setProcessing(null);
-    }
+
+  const clearFilters = () => {
+    setStatus("PENDING"); setContentType(""); setSearch("");
+    setDateFrom(""); setDateTo(""); setPage(1);
   };
-  
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, string> = {
-      'DRAFT': 'bg-gray-100 text-gray-800',
-      'PENDING': 'bg-amber-100 text-amber-800',
-      'PUBLISHED': 'bg-green-100 text-green-800',
-      'ARCHIVED': 'bg-slate-100 text-slate-800',
-      'REJECTED': 'bg-red-100 text-red-800',
-    };
-    
-    return (
-      <Badge className={cn("capitalize", variants[status] || 'bg-gray-100 text-gray-800')}>
-        {status.toLowerCase()}
-      </Badge>
-    );
-  };
-  
-  const getTypeBadge = (type: string) => {
-    const variants: Record<string, string> = {
-      'NEWS': 'bg-blue-100 text-blue-800',
-      'BLOG': 'bg-purple-100 text-purple-800',
-      'ENTRECHAT': 'bg-pink-100 text-pink-800',
-      'SUCCESS_STORY': 'bg-emerald-100 text-emerald-800',
-      'RESOURCE': 'bg-indigo-100 text-indigo-800',
-    };
-    
-    return (
-      <Badge className={cn("capitalize", variants[type] || 'bg-gray-100 text-gray-800')}>
-        {type.toLowerCase().replace('_', ' ')}
-      </Badge>
-    );
-  };
-  
-  const handlePreview = async (contentId: string) => {
-    const item = content.find(c => c.id === contentId);
-    if (item) {
-      setSelectedContent(item);
-      setPreviewOpen(true);
-    }
-  };
-  
+
+  const isAnyFilterActive = status !== "PENDING" || !!contentType || !!search || !!dateFrom || !!dateTo;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Content Moderation</h1>
-          <p className="text-gray-600">Review and publish content submitted by authors</p>
+
+      {/* ── Toast ────────────────────────────────────────────────────────── */}
+      {toast && (
+        <div className={cn(
+          "fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-sm font-medium transition-all",
+          toast.type === "success"
+            ? "bg-green-600 text-white"
+            : "bg-red-600 text-white"
+        )}>
+          {toast.type === "success"
+            ? <Check className="h-4 w-4" />
+            : <XCircle className="h-4 w-4" />}
+          {toast.msg}
         </div>
-        <Button 
-          variant="outline" 
-          onClick={fetchContent}
-          disabled={loading}
-        >
-          <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-          Refresh
-        </Button>
+      )}
+
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Content</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Review, publish, and manage all content
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={fetchContent} disabled={loading} className="gap-2">
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            Refresh
+          </Button>
+          <Link href="/dashboard/admin/content/new">
+            <Button size="sm" className="gap-2">
+              <FileText className="h-4 w-4" /> New Content
+            </Button>
+          </Link>
+        </div>
       </div>
-      
-      {/* Filters */}
+
+      {/* ── Filters ──────────────────────────────────────────────────────── */}
       <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Filter className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-lg">Filters</CardTitle>
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-base">Filters</CardTitle>
             </div>
-            <div className="text-sm text-muted-foreground">
-              Showing {content.length} of {pagination.total} items
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {pagination.total} item{pagination.total !== 1 ? "s" : ""} found
+              </span>
+              {isAnyFilterActive && (
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 text-xs gap-1 text-primary">
+                  <X className="h-3 w-3" /> Clear
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Search */}
             <div className="lg:col-span-2">
-              <Label htmlFor="search">Search</Label>
-              <div className="relative mt-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Label className="text-xs text-muted-foreground mb-1 block">Search</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="search"
-                  placeholder="Search by title, author, or content..."
-                  value={filters.search}
-                  onChange={(e) => handleFilterChange('search', e.target.value)}
-                  className="pl-10"
+                  placeholder="Search by title or author…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
                 />
+                {search && (
+                  <button onClick={() => setSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </button>
+                )}
               </div>
             </div>
-            
+
             {/* Status */}
             <div>
-              <Label htmlFor="status">Status</Label>
-              <Select
-                value={filters.status}
-                onValueChange={(value) => handleFilterChange('status', value)}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="All statuses" />
-                </SelectTrigger>
+              <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
+              <Select value={status} onValueChange={(v) => setStatus(v)}>
+                <SelectTrigger><SelectValue placeholder="All statuses" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="PENDING">Pending Review</SelectItem>
-                  <SelectItem value="PUBLISHED">Published</SelectItem>
-                  <SelectItem value="DRAFT">Draft</SelectItem>
-                  <SelectItem value="REJECTED">Rejected</SelectItem>
-                  <SelectItem value="ARCHIVED">Archived</SelectItem>
+                  <SelectItem value="ALL">All Statuses</SelectItem>
+                  {STATUSES.map((s) => (
+                    <SelectItem key={s} value={s} className="capitalize">
+                      {s.toLowerCase()}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
-            
+
             {/* Content Type */}
             <div>
-              <Label htmlFor="contentType">Content Type</Label>
-              <Select
-                value={filters.contentType}
-                onValueChange={(value) => handleFilterChange('contentType', value)}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="All types" />
-                </SelectTrigger>
+              <Label className="text-xs text-muted-foreground mb-1 block">Type</Label>
+              <Select value={contentType || "ALL"} onValueChange={(v) => setContentType(v === "ALL" ? "" : v)}>
+                <SelectTrigger><SelectValue placeholder="All types" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="All">All Types</SelectItem>
-                  <SelectItem value="BLOG">Blog</SelectItem>
-                  <SelectItem value="NEWS">News</SelectItem>
-                  <SelectItem value="ENTRECHAT">Entrechat</SelectItem>
-                  <SelectItem value="SUCCESS_STORY">Success Story</SelectItem>
-                  <SelectItem value="RESOURCE">Resource</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {/* Author */}
-            <div>
-              <Label htmlFor="author">Author</Label>
-              <Select
-                value={filters.author}
-                onValueChange={(value) => handleFilterChange('author', value)}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="All authors" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Authors</SelectItem>
-                  {authors.map(author => (
-                    <SelectItem key={author.id} value={author.id}>
-                      {author.name}
+                  <SelectItem value="ALL">All Types</SelectItem>
+                  {CONTENT_TYPES.map((t) => (
+                    <SelectItem key={t} value={t} className="capitalize">
+                      {t.toLowerCase().replace("_", " ")}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            
-            {/* Category */}
+
+            {/* Date from */}
             <div>
-              <Label htmlFor="category">Category</Label>
-              <Select
-                value={filters.category}
-                onValueChange={(value) => handleFilterChange('category', value)}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="All categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Categories</SelectItem>
-                  {categories.map(category => (
-                    <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs text-muted-foreground mb-1 block">From</Label>
+              <Input type="date" value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)} />
             </div>
-            
-            {/* Date Range */}
-            <div className="lg:col-span-2">
-              <Label>Date Range</Label>
-              <div className="grid grid-cols-2 gap-2 mt-1">
-                <div>
-                  <Input
-                    type="date"
-                    value={filters.dateFrom}
-                    onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
-                    placeholder="From"
-                  />
-                </div>
-                <div>
-                  <Input
-                    type="date"
-                    value={filters.dateTo}
-                    onChange={(e) => handleFilterChange('dateTo', e.target.value)}
-                    placeholder="To"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            {/* Clear Filters */}
-            <div className="flex items-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setFilters({
-                    status: 'PENDING',
-                    contentType: '',
-                    author: '',
-                    category: '',
-                    search: '',
-                    dateFrom: '',
-                    dateTo: '',
-                  });
-                }}
-                className="w-full"
-              >
-                Clear Filters
-              </Button>
+
+            {/* Date to */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">To</Label>
+              <Input type="date" value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)} />
             </div>
           </div>
         </CardContent>
       </Card>
-      
-      {/* Content Table */}
+
+      {/* ── Status tabs ──────────────────────────────────────────────────── */}
+      <div className="flex gap-2 flex-wrap">
+        {(["PENDING","PUBLISHED","DRAFT","REJECTED","ALL"] as const).map((s) => (
+          <button key={s}
+            onClick={() => { setStatus(s === "ALL" ? "" : s); setPage(1); }}
+            className={cn(
+              "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+              (status === s || (s === "ALL" && !status))
+                ? "bg-primary text-white border-primary"
+                : "bg-secondary/40 border-border text-muted-foreground hover:bg-secondary"
+            )}>
+            {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Table ────────────────────────────────────────────────────────── */}
       <Card>
         <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center h-64">
-              <div className="text-center">
+              <div className="text-center space-y-3">
                 <RefreshCw className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
-                <p className="mt-4 text-gray-600">Loading content...</p>
+                <p className="text-sm text-muted-foreground">Loading content…</p>
               </div>
             </div>
-          ) : content.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64">
-              <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold">No content found</h3>
-              <p className="text-gray-600 text-center mt-2">
-                {filters.status === 'PENDING' 
-                  ? "No pending content to review. Authors will submit content here for approval."
-                  : "Try changing your filters or check back later."
-                }
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center h-64 gap-4">
+              <XCircle className="h-10 w-10 text-destructive" />
+              <p className="text-sm text-muted-foreground">Failed to load content</p>
+              <Button variant="outline" onClick={fetchContent}>Try again</Button>
+            </div>
+          ) : items.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 gap-3">
+              <BookOpen className="h-10 w-10 text-muted-foreground" />
+              <p className="font-medium text-foreground">No content found</p>
+              <p className="text-sm text-muted-foreground text-center max-w-sm">
+                {status === "PENDING"
+                  ? "No pending content to review. New submissions will appear here."
+                  : "Try adjusting your filters."}
               </p>
+              {isAnyFilterActive && (
+                <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="text-left p-4 font-medium">Title</th>
-                    <th className="text-left p-4 font-medium">Author</th>
-                    <th className="text-left p-4 font-medium">Type</th>
-                    <th className="text-left p-4 font-medium">Status</th>
-                    <th className="text-left p-4 font-medium">Submitted</th>
-                    <th className="text-left p-4 font-medium">Actions</th>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Content</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Author</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Date</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {content.map((item) => (
-                    <tr key={item.id} className="border-b hover:bg-muted/25">
-                      <td className="p-4">
+                  {items.map((item) => (
+                    <tr key={item.id} className="border-b hover:bg-muted/20 transition-colors">
+                      {/* Content */}
+                      <td className="px-4 py-3 max-w-xs">
                         <div className="flex items-start gap-3">
-                          {item.featuredImage && (
-                            <img
-                              src={item.featuredImage}
-                              alt={item.title}
-                              className="h-12 w-12 rounded object-cover"
-                            />
+                          {item.featuredImage ? (
+                            <div className="relative h-10 w-14 flex-shrink-0 rounded overflow-hidden bg-muted">
+                              <Image src={item.featuredImage} alt={item.title} fill className="object-cover"
+                                sizes="56px" />
+                            </div>
+                          ) : (
+                            <div className="h-10 w-14 flex-shrink-0 rounded bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                              <FileText className="h-4 w-4 text-muted-foreground" />
+                            </div>
                           )}
-                          <div>
-                            <div className="font-medium">{item.title}</div>
-                            <div className="text-sm text-muted-foreground truncate max-w-xs">
-                              {item.summary || 'No summary available'}
-                            </div>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {item.tags.slice(0, 3).map(tag => (
-                                <Badge key={tag.id} variant="outline" className="text-xs">
-                                  {tag.name}
-                                </Badge>
-                              ))}
-                              {item.tags.length > 3 && (
-                                <Badge variant="outline" className="text-xs">
-                                  +{item.tags.length - 3}
-                                </Badge>
-                              )}
-                            </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground line-clamp-1">{item.title}</p>
+                            {item.summary && (
+                              <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{item.summary}</p>
+                            )}
+                            {item.categoryName && (
+                              <span className="text-[10px] text-muted-foreground">{item.categoryName}</span>
+                            )}
                           </div>
                         </div>
                       </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          {item.author.avatar && (
-                            <img
-                              src={item.author.avatar}
-                              alt={item.author.name}
-                              className="h-8 w-8 rounded-full"
-                            />
-                          )}
-                          <span>{item.author.name}</span>
-                        </div>
+
+                      {/* Author */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="text-sm text-foreground">
+                          {item.authorName ?? item.creatorName ?? "—"}
+                        </span>
                       </td>
-                      <td className="p-4">
-                        {getTypeBadge(item.contentType)}
+
+                      {/* Type */}
+                      <td className="px-4 py-3">
+                        <TypeBadge type={item.contentType} />
                       </td>
-                      <td className="p-4">
-                        {getStatusBadge(item.status)}
-                        {item.isFeatured && (
-                          <Badge className="ml-2 bg-purple-100 text-purple-800">
-                            Featured
-                          </Badge>
+
+                      {/* Status */}
+                      <td className="px-4 py-3">
+                        <StatusBadge status={item.status} />
+                      </td>
+
+                      {/* Date */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="text-xs text-foreground">{formatDate(item.createdAt)}</div>
+                        {item.publishedAt && (
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            Published {formatDate(item.publishedAt)}
+                          </div>
                         )}
                       </td>
-                      <td className="p-4">
-                        <div className="text-sm">
-                          {format(new Date(item.createdAt), 'MMM d, yyyy')}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {item.publishedAt 
-                            ? `Published: ${format(new Date(item.publishedAt), 'MMM d, yyyy')}`
-                            : item.scheduledPublishAt
-                            ? `Scheduled: ${format(new Date(item.scheduledPublishAt), 'MMM d, yyyy')}`
-                            : 'Not published'
-                          }
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handlePreview(item.id)}
-                          >
+
+                      {/* Actions */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          {/* Preview */}
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0"
+                            onClick={() => openPreview(item)} title="Preview">
                             <Eye className="h-4 w-4" />
                           </Button>
-                          
-                          {item.status === 'PENDING' && (
+
+                          {/* Pending-only actions */}
+                          {item.status === "PENDING" && (
                             <>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedContent(item);
-                                  setScheduleOpen(true);
-                                }}
-                                disabled={processing === item.id}
-                              >
-                                <Calendar className="h-4 w-4" />
+                              <Button variant="ghost" size="sm"
+                                className="h-8 w-8 p-0 text-blue-500 hover:text-blue-600 hover:bg-blue-50"
+                                onClick={() => { setScheduleItem(item); setScheduleOpen(true); }}
+                                title="Schedule" disabled={processing === item.id}>
+                                <CalendarIcon className="h-4 w-4" />
                               </Button>
-                              
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handlePublish(item.id, true)}
-                                disabled={processing === item.id}
-                                className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                              >
-                                {processing === item.id ? (
-                                  <RefreshCw className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Check className="h-4 w-4" />
-                                )}
+
+                              <Button variant="ghost" size="sm"
+                                className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                onClick={() => handlePublishNow(item)}
+                                title="Publish now" disabled={processing === item.id}>
+                                {processing === item.id
+                                  ? <RefreshCw className="h-4 w-4 animate-spin" />
+                                  : <Check className="h-4 w-4" />}
                               </Button>
-                              
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedContent(item);
-                                  setRejectOpen(true);
-                                }}
-                                disabled={processing === item.id}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              >
+
+                              <Button variant="ghost" size="sm"
+                                className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => { setRejectItem(item); setRejectOpen(true); }}
+                                title="Reject" disabled={processing === item.id}>
                                 <X className="h-4 w-4" />
                               </Button>
                             </>
                           )}
-                          
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleArchive(item.id)}
-                            disabled={processing === item.id}
-                            className="text-gray-600 hover:text-gray-700 hover:bg-gray-50"
-                          >
+
+                          {/* Republish rejected/draft */}
+                          {(item.status === "REJECTED" || item.status === "DRAFT") && (
+                            <Button variant="ghost" size="sm"
+                              className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                              onClick={() => handlePublishNow(item)}
+                              title="Publish" disabled={processing === item.id}>
+                              {processing === item.id
+                                ? <RefreshCw className="h-4 w-4 animate-spin" />
+                                : <ArrowRight className="h-4 w-4" />}
+                            </Button>
+                          )}
+
+                          {/* Delete */}
+                          <Button variant="ghost" size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => { setDeleteItem(item); setDeleteOpen(true); }}
+                            title="Delete" disabled={processing === item.id}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -752,28 +624,22 @@ export default function ContentModeration() {
               </table>
             </div>
           )}
-          
+
           {/* Pagination */}
           {pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between p-4 border-t">
-              <div className="text-sm text-muted-foreground">
-                Page {pagination.page} of {pagination.totalPages}
-              </div>
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <p className="text-sm text-muted-foreground">
+                Page {pagination.page} of {pagination.totalPages} · {pagination.total} items
+              </p>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(pagination.page - 1)}
-                  disabled={!pagination.hasPrev}
-                >
+                <Button variant="outline" size="sm"
+                  onClick={() => setPage((p) => p - 1)}
+                  disabled={page <= 1}>
                   Previous
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(pagination.page + 1)}
-                  disabled={!pagination.hasNext}
-                >
+                <Button variant="outline" size="sm"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page >= pagination.totalPages}>
                   Next
                 </Button>
               </div>
@@ -781,332 +647,237 @@ export default function ContentModeration() {
           )}
         </CardContent>
       </Card>
-      
-      {/* Preview Dialog */}
+
+      {/* ══════════════ DIALOGS ════════════════════════════════════════════ */}
+
+      {/* ── Preview dialog ───────────────────────────────────────────────── */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Content Preview</DialogTitle>
-            <DialogDescription>
-              Review content before publishing
-            </DialogDescription>
+            <DialogDescription>Full detail before taking action</DialogDescription>
           </DialogHeader>
-          
-          {selectedContent && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  {getStatusBadge(selectedContent.status)}
-                  {getTypeBadge(selectedContent.contentType)}
-                  {selectedContent.isFeatured && (
-                    <Badge className="bg-purple-100 text-purple-800">
-                      Featured
-                    </Badge>
-                  )}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Submitted: {format(new Date(selectedContent.createdAt), 'PPpp')}
-                </div>
+
+          {previewLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : previewItem ? (
+            <div className="space-y-5">
+              {/* Badges */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <StatusBadge status={previewItem.status} />
+                <TypeBadge type={previewItem.contentType} />
+                {previewItem.categoryName && (
+                  <span className="text-xs text-muted-foreground border border-border rounded-full px-2 py-0.5">
+                    {previewItem.categoryName}
+                  </span>
+                )}
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {formatDateTime(previewItem.createdAt)}
+                </span>
               </div>
-              
-              {selectedContent.featuredImage && (
-                <img
-                  src={selectedContent.featuredImage}
-                  alt={selectedContent.title}
-                  className="w-full h-64 object-cover rounded-lg"
-                />
+
+              {/* Featured image */}
+              {previewItem.featuredImage && (
+                <div className="relative w-full h-52 rounded-xl overflow-hidden">
+                  <Image src={previewItem.featuredImage} alt={previewItem.title}
+                    fill className="object-cover" sizes="720px" />
+                </div>
               )}
-              
+
+              {/* Title + summary */}
               <div>
-                <h2 className="text-2xl font-bold">{selectedContent.title}</h2>
-                <p className="text-gray-600 mt-2">{selectedContent.summary}</p>
+                <h2 className="text-xl font-bold text-foreground">{previewItem.title}</h2>
+                {previewItem.summary && (
+                  <p className="text-muted-foreground mt-2 text-sm leading-relaxed">{previewItem.summary}</p>
+                )}
               </div>
-              
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* Meta */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <h4 className="font-semibold mb-2">Author</h4>
-                  <div className="flex items-center gap-2">
-                    {selectedContent.author.avatar && (
-                      <img
-                        src={selectedContent.author.avatar}
-                        alt={selectedContent.author.name}
-                        className="h-8 w-8 rounded-full"
-                      />
-                    )}
-                    <span>{selectedContent.author.name}</span>
+                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Author</span>
+                  <p className="font-medium mt-0.5">{previewItem.authorName ?? previewItem.creatorName ?? "—"}</p>
+                </div>
+                {previewItem.readingTime && (
+                  <div>
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">Reading time</span>
+                    <p className="font-medium mt-0.5">{previewItem.readingTime} min</p>
                   </div>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-2">Category</h4>
-                  <Badge variant="outline">
-                    {selectedContent.category?.name || 'Uncategorized'}
-                  </Badge>
-                </div>
+                )}
               </div>
-              
-              <div>
-                <h4 className="font-semibold mb-2">Tags</h4>
+
+              {/* Tags */}
+              {previewItem.tags.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {selectedContent.tags.map(tag => (
-                    <Badge key={tag.id} variant="secondary">
-                      {tag.name}
-                    </Badge>
+                  {previewItem.tags.map((t) => (
+                    <span key={t.id} className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-xs">
+                      #{t.name}
+                    </span>
                   ))}
                 </div>
-              </div>
-              
-              <div className="border rounded-lg p-4">
-                <h4 className="font-semibold mb-2">Content</h4>
-                <div 
-                  className="prose max-w-none"
-                  dangerouslySetInnerHTML={{ __html: selectedContent.content }}
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-medium">Views:</span> {selectedContent.viewCount}
-                </div>
-                <div>
-                  <span className="font-medium">Likes:</span> {selectedContent.likeCount}
-                </div>
-                <div>
-                  <span className="font-medium">Comments:</span> {selectedContent.commentCount}
-                </div>
-                <div>
-                  <span className="font-medium">Language:</span> English
-                </div>
+              )}
+
+              {/* Content HTML */}
+              <div className="border border-border rounded-xl p-4 bg-muted/20">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide mb-3">Content</p>
+                <div className="prose prose-sm max-w-none text-foreground"
+                  dangerouslySetInnerHTML={{ __html: previewItem.content }} />
               </div>
             </div>
-          )}
-          
-          <DialogFooter className="flex gap-2">
-            {selectedContent?.status === 'PENDING' && (
+          ) : null}
+
+          <DialogFooter className="gap-2 flex-wrap">
+            <Button variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
+            {previewItem?.status === "PENDING" && (
               <>
-                <Button
-                  variant="outline"
-                  onClick={() => setPreviewOpen(false)}
-                >
-                  Close
+                <Button variant="destructive"
+                  onClick={() => { setPreviewOpen(false); setRejectItem(previewItem); setRejectOpen(true); }}>
+                  <X className="h-4 w-4 mr-2" /> Reject
                 </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    setPreviewOpen(false);
-                    setSelectedContent(selectedContent);
-                    setRejectOpen(true);
-                  }}
-                >
-                  <X className="h-4 w-4 mr-2" />
-                  Reject
+                <Button variant="outline"
+                  onClick={() => { setPreviewOpen(false); setScheduleItem(previewItem); setScheduleOpen(true); }}>
+                  <CalendarIcon className="h-4 w-4 mr-2" /> Schedule
                 </Button>
-                <Button
-                  onClick={() => {
-                    setPreviewOpen(false);
-                    setSelectedContent(selectedContent);
-                    setScheduleOpen(true);
-                  }}
-                >
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Schedule
-                </Button>
-                <Button
-                  onClick={() => {
-                    handlePublish(selectedContent!.id, true);
-                    setPreviewOpen(false);
-                  }}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <Check className="h-4 w-4 mr-2" />
-                  Publish Now
+                <Button className="bg-green-600 hover:bg-green-700"
+                  onClick={() => { handlePublishNow(previewItem); setPreviewOpen(false); }}
+                  disabled={processing === previewItem.id}>
+                  <Check className="h-4 w-4 mr-2" /> Publish Now
                 </Button>
               </>
             )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
-      {/* Schedule Dialog */}
+
+      {/* ── Schedule dialog ───────────────────────────────────────────────── */}
       <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Schedule Publishing</DialogTitle>
-            <DialogDescription>
-              Choose a date and time to publish this content
-            </DialogDescription>
+            <DialogDescription>Pick when this content should go live</DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
-            <div>
-              <Label>Select Date & Time</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !selectedDate && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {selectedDate ? (
-                      format(selectedDate, "PPP p")
-                    ) : (
-                      <span>Pick a date and time</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0">
-                  <CalendarComponent
-                    mode="single"
-                    selected={selectedDate}
-                    onSelect={setSelectedDate}
-                    initialFocus
-                  />
-                  <div className="p-3 border-t">
-                    <Input
-                      type="time"
-                      value={selectedDate ? format(selectedDate, 'HH:mm') : ''}
-                      onChange={(e) => {
-                        if (selectedDate) {
-                          const [hours, minutes] = e.target.value.split(':');
-                          const newDate = new Date(selectedDate);
-                          newDate.setHours(parseInt(hours), parseInt(minutes));
-                          setSelectedDate(newDate);
-                        }
-                      }}
-                    />
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-            
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
-                <div className="text-sm text-amber-800">
-                  <p className="font-medium">Note about scheduling</p>
-                  <p className="mt-1">
-                    The content will remain in &quot;Pending &quot; status until the scheduled time, 
-                    when it will automatically be published. You can also choose to publish it immediately.
-                  </p>
+            <Label>Select date & time</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className={cn("w-full justify-start font-normal", !scheduleDate && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {scheduleDate ? format(scheduleDate, "PPP p") : "Pick a date…"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <CalendarComponent mode="single" selected={scheduleDate}
+                  onSelect={setScheduleDate} initialFocus
+                  disabled={(d) => d < new Date()} />
+                <div className="p-3 border-t">
+                  <Input type="time"
+                    value={scheduleDate ? format(scheduleDate, "HH:mm") : ""}
+                    onChange={(e) => {
+                      if (!scheduleDate) return;
+                      const [h, m] = e.target.value.split(":").map(Number);
+                      const d = new Date(scheduleDate);
+                      d.setHours(h, m);
+                      setScheduleDate(d);
+                    }} />
                 </div>
-              </div>
+              </PopoverContent>
+            </Popover>
+
+            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              Content stays in Pending until the scheduled time.
             </div>
           </div>
-          
+
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setScheduleOpen(false);
-                setSelectedDate(undefined);
-              }}
-            >
+            <Button variant="outline" onClick={() => { setScheduleOpen(false); setScheduleDate(undefined); }}>
               Cancel
             </Button>
-            <Button
-              onClick={() => {
-                if (selectedDate) {
-                  handlePublish(selectedContent!.id, false, selectedDate);
-                }
-              }}
-              disabled={!selectedDate || processing === selectedContent?.id}
-            >
-              {processing === selectedContent?.id ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Scheduling...
-                </>
-              ) : (
-                <>
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Schedule
-                </>
-              )}
+            <Button onClick={handleSchedule} disabled={!scheduleDate || processing === scheduleItem?.id}>
+              {processing === scheduleItem?.id
+                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Scheduling…</>
+                : <><Calendar className="h-4 w-4 mr-2" />Schedule</>}
             </Button>
-            <Button
-              onClick={() => {
-                handlePublish(selectedContent!.id, true);
-                setScheduleOpen(false);
-              }}
-              disabled={processing === selectedContent?.id}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <Check className="h-4 w-4 mr-2" />
-              Publish Now
+            <Button className="bg-green-600 hover:bg-green-700"
+              onClick={() => { if (scheduleItem) { handlePublishNow(scheduleItem); setScheduleOpen(false); } }}
+              disabled={processing === scheduleItem?.id}>
+              <Check className="h-4 w-4 mr-2" /> Publish Now
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
-      {/* Reject Dialog */}
+
+      {/* ── Reject dialog ─────────────────────────────────────────────────── */}
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject Content</DialogTitle>
-            <DialogDescription>
-              Provide a reason for rejecting this content submission
-            </DialogDescription>
+            <DialogDescription>Provide feedback for the author</DialogDescription>
           </DialogHeader>
-          
-          <div className="space-y-4">
-            {selectedContent && (
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="font-medium">{selectedContent.title}</p>
-                <p className="text-sm text-gray-600 truncate">
-                  {selectedContent.summary || 'No summary'}
-                </p>
-              </div>
-            )}
-            
-            <div>
-              <Label htmlFor="rejectReason">Reason for rejection</Label>
-              <Textarea
-                id="rejectReason"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Please provide specific feedback for the author..."
-                className="mt-1"
-                rows={4}
-              />
-              <p className="text-sm text-muted-foreground mt-1">
-                This feedback will be sent to the author.
-              </p>
+
+          {rejectItem && (
+            <div className="p-3 rounded-lg bg-muted/40 border border-border">
+              <p className="font-medium text-sm text-foreground line-clamp-1">{rejectItem.title}</p>
+              {rejectItem.summary && (
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{rejectItem.summary}</p>
+              )}
             </div>
+          )}
+
+          <div>
+            <Label htmlFor="rejectReason" className="mb-1.5 block">Reason for rejection</Label>
+            <Textarea id="rejectReason" rows={4}
+              placeholder="Give specific, actionable feedback to the author…"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)} />
+            <p className="text-xs text-muted-foreground mt-1">This feedback will be shared with the author.</p>
           </div>
-          
+
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setRejectOpen(false);
-                setRejectReason('');
-              }}
-            >
+            <Button variant="outline"
+              onClick={() => { setRejectOpen(false); setRejectReason(""); }}>
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              onClick={() => handleReject(selectedContent!.id)}
-              disabled={!rejectReason.trim() || processing === selectedContent?.id}
-            >
-              {processing === selectedContent?.id ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Rejecting...
-                </>
-              ) : (
-                <>
-                  <X className="h-4 w-4 mr-2" />
-                  Reject Content
-                </>
-              )}
+            <Button variant="destructive" onClick={handleReject}
+              disabled={!rejectReason.trim() || processing === rejectItem?.id}>
+              {processing === rejectItem?.id
+                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Rejecting…</>
+                : <><X className="h-4 w-4 mr-2" />Reject</>}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Delete confirm dialog ────────────────────────────────────────── */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Content</DialogTitle>
+            <DialogDescription>This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+
+          {deleteItem && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+              <p className="font-medium text-sm text-red-900">{deleteItem.title}</p>
+              <p className="text-xs text-red-700 mt-0.5">{deleteItem.contentType} · {deleteItem.status}</p>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete}
+              disabled={processing === deleteItem?.id}>
+              {processing === deleteItem?.id
+                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Deleting…</>
+                : <><Trash2 className="h-4 w-4 mr-2" />Delete permanently</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
-

@@ -1,0 +1,2 @@
+CREATE INDEX "content_slug_status_idx" ON "content" USING btree ("slug","status");--> statement-breakpoint
+CREATE INDEX "content_related_query_idx" ON "content" USING btree ("category_id","status","published_at");

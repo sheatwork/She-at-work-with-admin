@@ -12,7 +12,7 @@ export const apiAuthPrefix: string = "/api/auth";
 export const publicRoutes: (string | RegExp)[] = ["/", "/auth/verify-email", "/news", "/about", "/blogs", "/contact", "/entrechat", "/events", "/share-your-story", /^\/blogs(\/.*)?$/, /^\/entrechat(\/.*)?$/, /^\/news(\/.*)?$/, /^\/events(\/.*)?$/, "/about/core-team", "/gettingstarted", "/gettingstarted/government-schemes-india", "/gettingstarted/global-schemes", "/about/press-room",/^\/about(\/.*)?$/];
 
 // APIs which are accessible to all.
-export const publicApis: string[] = ["/api/shareyourstory", "/api/contact-submissions", "/api/news", "/api/blogs", "/api/entrechat"];
+export const publicApis: string[] = ["/api/shareyourstory", "/api/contact-submissions", "/api/content"];
 
 // Routes which are used for authentication.
 export const authRoutes: string[] = [

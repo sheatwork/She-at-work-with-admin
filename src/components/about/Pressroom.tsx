@@ -1,27 +1,47 @@
 // /app/about/press-room/page.tsx
+/*eslint-disable @typescript-eslint/no-explicit-any */
+/*eslint-disable @typescript-eslint/no-unused-vars */
 "use client";
 import Cta from "@/components/common/Cta";
 import { AnimatedText, ScrollFade } from "@/components/common/ScrollFade";
 import { Button } from "@/components/ui/button";
-import { pressData } from "@/data/Press";
 import { motion, Variants } from "framer-motion";
-import { ArrowRight, Calendar, Clock, TrendingUp } from "lucide-react";
+import { ArrowRight, Calendar, Clock, TrendingUp, Search, X, SlidersHorizontal } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 
-// Define types for press data
+// Define types for API response
+interface ApiTag {
+  id: string;
+  name: string;
+  slug: string;
+}
+
 interface PressItem {
-  ID: string;
-  post_title: string;
-  post_content: string;
-  post_date: string;
-  post_excerpt: string;
-  post_name: string;
-  post_modified?: string;
-  post_author?: string;
-  featured_image_url?: string | null;
-  content_images?: string[] | null;
+  id: string;
+  title: string;
+  slug: string;
+  summary: string | null;
+  featuredImage: string | null;
+  externalUrl: string | null;
+  readingTime: number | null;
+  publishedAt: string | null;
+  authorName: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  categorySlug: string | null;
+  tags: ApiTag[];
+}
+
+interface ApiResponse {
+  items: PressItem[];
+  totalItems: number;
+  totalPages: number;
+  page: number;
+  limit: number;
+  categories: { id: string; name: string; slug: string }[];
+  readingTimes: string[];
 }
 
 interface ProcessedPressItem {
@@ -36,6 +56,7 @@ interface ProcessedPressItem {
   modifiedDate?: string;
   slug: string;
   hasValidContent: boolean;
+  tags: ApiTag[];
 }
 
 // Animation variants
@@ -100,7 +121,8 @@ const staggerContainer: Variants = {
 };
 
 // Helper functions
-const formatDate = (dateString: string): string => {
+const formatDate = (dateString: string | null): string => {
+  if (!dateString) return 'Date unavailable';
   try {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return 'Date unavailable';
@@ -111,7 +133,7 @@ const formatDate = (dateString: string): string => {
 };
 
 // Clean HTML tags from text
-const cleanText = (text: string): string => {
+const cleanText = (text: string | null): string => {
   if (!text) return '';
   
   // Remove HTML tags
@@ -125,154 +147,212 @@ const cleanText = (text: string): string => {
   return clean;
 };
 
-const extractExcerpt = (content: string, maxLength: number = 150): string => {
-  if (!content) return 'No excerpt available';
+const extractExcerpt = (summary: string | null, maxLength: number = 150): string => {
+  if (!summary) return 'No excerpt available';
   
-  // First clean the content
-  const cleanContent = cleanText(content);
+  // Clean the summary
+  const cleanContent = cleanText(summary);
   
-  // If content is just gallery shortcodes, provide a generic description
-  if (cleanContent.length === 0 || cleanContent.length < 20) {
-    return 'Press release with media gallery available';
+  if (cleanContent.length === 0) {
+    return 'Press release available';
   }
   
   return cleanContent.length <= maxLength ? cleanContent : cleanContent.substring(0, maxLength) + '...';
 };
 
-const calculateReadTime = (text: string): string => {
-  if (!text) return '1 min read';
-  
-  // Clean the text first
-  const cleanTextContent = cleanText(text);
-  
-  if (cleanTextContent.length === 0) return '1 min read';
-  
-  const wordCount = cleanTextContent.split(/\s+/).filter(word => word.length > 0).length;
-  return `${Math.max(1, Math.ceil(wordCount / 200))} min read`;
+const calculateReadTime = (readingTime: number | null): string => {
+  if (!readingTime) return '1 min read';
+  return `${Math.max(1, readingTime)} min read`;
 };
 
 // Helper to get image URL from press item
 const getImageUrl = (item: PressItem): string => {
-  // First, try featured image URL
-  if (item.featured_image_url) {
-    return item.featured_image_url;
-  }
-  
-  // Then try content images array
-  if (item.content_images && item.content_images.length > 0) {
-    return item.content_images[0];
+  // First, try featured image
+  if (item.featuredImage) {
+    return item.featuredImage;
   }
   
   // Fallback to default placeholder
   return '/images/press-placeholder.jpg';
 };
 
-const isValidContent = (content: string, content_images?: string[] | null): boolean => {
-  if (!content) return false;
-  
-  const cleanContent = cleanText(content);
-  
-  // Check if the content starts with a gallery shortcode and has no meaningful text
-  const startsWithGallery = content.trim().startsWith('[gallery');
-  const hasOnlyGallery = startsWithGallery && cleanContent.length === 0;
-  
-  // If it's just a gallery without any text, we don't want to show it
-  if (hasOnlyGallery) {
-    // Check if it has content images - if yes, we can show it as a gallery post
-    if (content_images && content_images.length > 0) {
-      return true; // Show gallery-only posts that have images
-    }
-    return false; // Don't show empty gallery posts
-  }
-  
-  // For regular content, check if it has meaningful text
-  return cleanContent.length > 50 || startsWithGallery;
-};
-
 const ITEMS_PER_PAGE = 12;
+
+// URL builder function
+function buildUrl(opts: {
+  page?: number;
+  limit?: number;
+  search?: string;
+  categorySlug?: string;
+  tagSlug?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}): string {
+  const p = new URLSearchParams({ contentType: "PRESS" });
+  if (opts.page) p.set("page", String(opts.page));
+  if (opts.limit) p.set("limit", String(opts.limit));
+  if (opts.search) p.set("search", opts.search);
+  if (opts.categorySlug) p.set("category", opts.categorySlug);
+  if (opts.tagSlug) p.set("tag", opts.tagSlug);
+  if (opts.dateFrom) p.set("dateFrom", opts.dateFrom);
+  if (opts.dateTo) p.set("dateTo", opts.dateTo);
+  return `/api/content?${p}`;
+}
 
 export default function PressRoomPage() {
   const [processedPress, setProcessedPress] = useState<ProcessedPressItem[]>([]);
+  const [allItems, setAllItems] = useState<PressItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFilterLoading, setIsFilterLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [filteredPress, setFilteredPress] = useState<ProcessedPressItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [imagesLoaded, setImagesLoaded] = useState<{ [key: string]: boolean }>({});
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  
+  // Filter states
+  const [selectedCategorySlug, setSelectedCategorySlug] = useState("");
+  const [selectedTagSlug, setSelectedTagSlug] = useState("");
+  const [categories, setCategories] = useState<{ id: string; name: string; slug: string }[]>([]);
+  
+  // UI states
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  
+  // Refs
+  const filterRef = useRef<HTMLDivElement>(null);
+  const filterAbortRef = useRef<AbortController | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstRender = useRef(true);
 
-  // Update the useEffect that processes the data
+  // Debounce search
   useEffect(() => {
-    setIsLoading(true);
-    const processed = pressData
-      .map((item: PressItem) => {
-        // Clean the title first
-        const cleanTitle = cleanText(item.post_title) || 'Untitled Press Release';
-        const excerpt = extractExcerpt(item.post_content);
-        const date = formatDate(item.post_date);
-        const readTime = calculateReadTime(item.post_content);
-        
-        // Extract author from content or use default
-        let authorName = "She at Work";
-        if (item.post_content) {
-          const authorMatch = item.post_content.match(/by\s+([A-Z][a-z]+\s+[A-Z][a-z]+)/i) || 
-                            item.post_content.match(/–\s+([A-Z][a-z]+\s+[A-Z][a-z]+)/i);
-          if (authorMatch) authorName = authorMatch[1];
-        }
-        
-        const image = getImageUrl(item);
-        const hasValidContent = isValidContent(item.post_content, item.content_images);
-        
-        return {
-          id: item.ID,
-          title: cleanTitle,
-          excerpt,
-          date,
-          readTime,
-          author: { name: authorName, role: "Contributor" },
-          image,
-          fullContent: item.post_content,
-          modifiedDate: item.post_modified ? formatDate(item.post_modified) : undefined,
-          slug: item.post_name,
-          hasValidContent,
-        };
-      })
-      .filter(item => {
-        // Check if it's the specific problematic gallery post
-        const isProblematicGallery = item.fullContent.includes('ids="15304,15303,15302,15301,15311,15312,15313,15314,15315,15316,15317,15318,15319,15320,15321,15322,15323,15324,15325,15326,15327,15328,15329,15330,15331,15332"');
-        
-        if (isProblematicGallery) {
-          return false; // Exclude this specific post
-        }
-        
-        return item.hasValidContent;
-      })
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery]);
 
-    setProcessedPress(processed);
-    setFilteredPress(processed);
-    setIsLoading(false);
+  // Initial fetch
+  useEffect(() => {
+    (async () => {
+      try {
+        setIsLoading(true);
+        const res = await fetch(buildUrl({ page: 1, limit: ITEMS_PER_PAGE }));
+        if (!res.ok) throw new Error('Failed to fetch');
+        const data: ApiResponse = await res.json();
+
+        setAllItems(data.items);
+        setTotalPages(data.totalPages);
+        setTotalItems(data.totalItems);
+        setCategories(data.categories ?? []);
+
+        // Process the items
+        const processed = data.items.map((item: PressItem) => ({
+          id: item.id,
+          title: cleanText(item.title) || 'Untitled Press Release',
+          excerpt: extractExcerpt(item.summary),
+          date: formatDate(item.publishedAt),
+          readTime: calculateReadTime(item.readingTime),
+          author: { name: item.authorName || 'She at Work', role: "Contributor" },
+          image: getImageUrl(item),
+          fullContent: item.summary || '',
+          slug: item.slug,
+          hasValidContent: true,
+          tags: item.tags || [],
+        }));
+
+        setProcessedPress(processed);
+        setFilteredPress(processed);
+      } catch (error) {
+        console.error('Error fetching press data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   }, []);
 
-  // Handle search
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredPress(processedPress);
-      setCurrentPage(1);
-    } else {
-      const filtered = processedPress.filter(item =>
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.author.name.toLowerCase().includes(searchQuery.toLowerCase())
+  // Fetch on filter/page change
+  const fetchFilteredPress = useCallback(async () => {
+    if (filterAbortRef.current) filterAbortRef.current.abort();
+    filterAbortRef.current = new AbortController();
+    setIsFilterLoading(true);
+
+    try {
+      const res = await fetch(
+        buildUrl({
+          page: currentPage,
+          limit: ITEMS_PER_PAGE,
+          search: debouncedSearch || undefined,
+          categorySlug: selectedCategorySlug || undefined,
+          tagSlug: selectedTagSlug || undefined,
+        }),
+        { signal: filterAbortRef.current.signal }
       );
-      setFilteredPress(filtered);
-      setCurrentPage(1);
+      
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data: ApiResponse = await res.json();
+      
+      setAllItems(data.items);
+      setTotalPages(data.totalPages);
+      setTotalItems(data.totalItems);
+      
+      // Update categories if server returned fresher data
+      if (data.categories?.length) setCategories(data.categories);
+
+      // Process the items
+      const processed = data.items.map((item: PressItem) => ({
+        id: item.id,
+        title: cleanText(item.title) || 'Untitled Press Release',
+        excerpt: extractExcerpt(item.summary),
+        date: formatDate(item.publishedAt),
+        readTime: calculateReadTime(item.readingTime),
+        author: { name: item.authorName || 'She at Work', role: "Contributor" },
+        image: getImageUrl(item),
+        fullContent: item.summary || '',
+        slug: item.slug,
+        hasValidContent: true,
+        tags: item.tags || [],
+      }));
+
+      setProcessedPress(processed);
+      setFilteredPress(processed);
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      console.error("Filter fetch error:", err);
+      setProcessedPress([]);
+      setFilteredPress([]);
+    } finally {
+      setIsFilterLoading(false);
     }
-  }, [searchQuery, processedPress]);
+  }, [currentPage, debouncedSearch, selectedCategorySlug, selectedTagSlug]);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    fetchFilteredPress();
+  }, [fetchFilteredPress]);
+
+  // Click outside handler for filter
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setIsFilterOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const featuredPress = filteredPress.length > 0 ? filteredPress[0] : null;
 
-  const totalPages = Math.ceil(filteredPress.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const currentPosts = filteredPress.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
+  const currentPosts = filteredPress;
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -282,6 +362,27 @@ export default function PressRoomPage() {
   const handleImageLoad = (id: string) => {
     setImagesLoaded(prev => ({ ...prev, [id]: true }));
   };
+
+  const clearAllFilters = () => {
+    setSelectedCategorySlug("");
+    setSelectedTagSlug("");
+    setSearchQuery("");
+    setDebouncedSearch("");
+    setCurrentPage(1);
+    setIsFilterOpen(false);
+  };
+
+  const isAnyFilterActive = () => {
+    return !!selectedCategorySlug || !!selectedTagSlug || !!searchQuery;
+  };
+
+  const activeFilterCount = [
+    !!selectedCategorySlug,
+    !!selectedTagSlug,
+    !!searchQuery,
+  ].filter(Boolean).length;
+
+  const selectedCategory = categories.find((c) => c.slug === selectedCategorySlug);
 
   if (isLoading) {
     return (
@@ -326,8 +427,8 @@ export default function PressRoomPage() {
         </div>
       </section>
 
-      {/* Featured Press Section (only show if we have items) */}
-      {featuredPress && (
+      {/* Featured Press Section */}
+      {featuredPress && !isFilterLoading && (
         <ScrollFade>
           <section className="px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
             <div className="max-w-screen-xl mx-auto">
@@ -444,60 +545,198 @@ export default function PressRoomPage() {
               viewport={{ once: false }}
               className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8"
             >
-              <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-foreground">
-                All Press Releases
-                <span className="text-muted-foreground text-sm font-normal ml-2">
-                  ({filteredPress.length} releases)
-                </span>
-              </h2>
+              <div>
+                <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-foreground">
+                  {selectedCategory ? selectedCategory.name : "All Press Releases"}
+                  {debouncedSearch && <span className="text-primary ml-2">— Search: {debouncedSearch}</span>}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {isFilterLoading ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="inline-block w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                      Filtering...
+                    </span>
+                  ) : (
+                    <>
+                      {totalItems} {totalItems === 1 ? 'release' : 'releases'} found
+                      {debouncedSearch && ` matching "${debouncedSearch}"`}
+                    </>
+                  )}
+                </p>
+              </div>
               
-              <motion.div 
-                variants={scaleIn}
-                className="w-full sm:w-auto"
-              >
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search press releases..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full sm:w-64 px-4 py-2 pl-10 text-sm bg-background border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary transition-all"
-                  />
-                  <svg
-                    className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3 w-full sm:w-auto">
+                {/* Search Input */}
+                <motion.div 
+                  variants={scaleIn}
+                  className="w-full sm:w-auto relative"
+                >
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search press releases..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full sm:w-64 pl-10 pr-10 py-2 text-sm bg-background border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary transition-all"
                     />
-                  </svg>
+                    {searchQuery && (
+                      <button
+                        onClick={() => {
+                          setSearchQuery("");
+                          setDebouncedSearch("");
+                        }}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2"
+                      >
+                        <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+
+                {/* Filter Button */}
+                <div className="relative w-full sm:w-auto" ref={filterRef}>
+                  <motion.div
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto flex items-center gap-2"
+                      onClick={() => setIsFilterOpen(!isFilterOpen)}
+                    >
+                      <SlidersHorizontal className="h-4 w-4" />
+                      Filters
+                      {isAnyFilterActive() && (
+                        <span className="ml-1 inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary text-white text-xs">
+                          {activeFilterCount}
+                        </span>
+                      )}
+                    </Button>
+                  </motion.div>
+
+                  {/* Filter Dropdown */}
+                  {isFilterOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      className="absolute top-full right-0 mt-1 w-80 bg-white border border-border rounded-lg shadow-xl z-50 max-h-[80vh] overflow-y-auto p-4"
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-lg font-semibold text-foreground">Filter Press Releases</h4>
+                      </div>
+
+                      {/* Category Filter */}
+                      {categories.length > 0 && (
+                        <div className="mb-4">
+                          <h5 className="text-sm font-medium text-foreground mb-2">Category</h5>
+                          <select
+                            value={selectedCategorySlug}
+                            onChange={(e) => {
+                              setSelectedCategorySlug(e.target.value);
+                              setCurrentPage(1);
+                            }}
+                            className="w-full px-3 py-2 text-sm bg-background border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                          >
+                            <option value="">All Categories</option>
+                            {categories.map((cat) => (
+                              <option key={cat.id} value={cat.slug}>
+                                {cat.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Active Filters */}
+                      {isAnyFilterActive() && (
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="pt-4 mt-2 border-t border-border"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <h5 className="text-sm font-medium text-foreground">Active Filters</h5>
+                            <button
+                              onClick={clearAllFilters}
+                              className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                            >
+                              <X className="h-3 w-3" /> Clear All
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedCategory && (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded-full">
+                                {selectedCategory.name}
+                                <button
+                                  onClick={() => setSelectedCategorySlug("")}
+                                  className="hover:text-primary/80"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </span>
+                            )}
+                            {searchQuery && (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-primary/10 text-primary rounded-full">
+                                Search: {searchQuery}
+                                <button
+                                  onClick={() => {
+                                    setSearchQuery("");
+                                    setDebouncedSearch("");
+                                  }}
+                                  className="hover:text-primary/80"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </span>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </motion.div>
+                  )}
                 </div>
-              </motion.div>
+              </div>
             </motion.div>
           </ScrollFade>
 
-          {filteredPress.length === 0 ? (
+          {isFilterLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
+                <div key={i} className="bg-card rounded-lg overflow-hidden shadow-md border border-border animate-pulse">
+                  <div className="h-48 bg-gray-200" />
+                  <div className="p-5 space-y-3">
+                    <div className="h-4 bg-gray-200 rounded w-3/4" />
+                    <div className="h-3 bg-gray-200 rounded w-full" />
+                    <div className="h-3 bg-gray-200 rounded w-2/3" />
+                    <div className="pt-4 border-t">
+                      <div className="h-3 bg-gray-200 rounded w-1/2" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredPress.length === 0 ? (
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="text-center py-12"
             >
-              <p className="text-muted-foreground">No press releases found matching your search.</p>
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-secondary flex items-center justify-center">
+                <Search className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <p className="text-muted-foreground mb-4">No press releases found matching your search.</p>
               <motion.div
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
                 <Button
                   variant="outline"
-                  className="mt-4"
-                  onClick={() => setSearchQuery('')}
+                  onClick={clearAllFilters}
                 >
-                  Clear Search
+                  Clear All Filters
                 </Button>
               </motion.div>
             </motion.div>
@@ -555,6 +794,26 @@ export default function PressRoomPage() {
                         <p className="text-sm text-muted-foreground mb-4 line-clamp-3 flex-grow">
                           {post.excerpt}
                         </p>
+                        
+                        {/* Tags */}
+                        {post.tags && post.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-3">
+                            {post.tags.slice(0, 2).map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="px-2 py-0.5 text-[10px] bg-secondary text-muted-foreground rounded-full"
+                              >
+                                #{tag.name}
+                              </span>
+                            ))}
+                            {post.tags.length > 2 && (
+                              <span className="px-2 py-0.5 text-[10px] bg-secondary text-muted-foreground rounded-full">
+                                +{post.tags.length - 2}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        
                         <div className="flex items-center justify-between pt-4 border-t mt-auto">
                           <div className="flex flex-col text-xs text-muted-foreground">
                             <div className="flex items-center gap-1 mb-1">
@@ -586,86 +845,91 @@ export default function PressRoomPage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3 }}
-                  className="flex flex-wrap justify-center gap-2 mt-12"
+                  className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-12 pt-8 border-t border-border"
                 >
-                  <motion.div
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={currentPage === 1}
-                      onClick={() => handlePageChange(currentPage - 1)}
-                      className="px-3"
+                  <p className="text-sm text-muted-foreground">
+                    Showing {startIndex + 1}–{endIndex} of {totalItems} releases
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <motion.div
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                     >
-                      Previous
-                    </Button>
-                  </motion.div>
-                  
-                  {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
-                    let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-
-                    return (
-                      <motion.div
-                        key={i}
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage === 1}
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        className="px-3"
                       >
-                        <Button
-                          variant={currentPage === pageNum ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => handlePageChange(pageNum)}
-                          className="w-10 h-10 p-0"
-                        >
-                          {pageNum}
-                        </Button>
-                      </motion.div>
-                    );
-                  })}
+                        Previous
+                      </Button>
+                    </motion.div>
+                    
+                    {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
 
-                  {totalPages > 5 && currentPage < totalPages - 2 && (
-                    <>
-                      <span className="flex items-center px-2">...</span>
-                      <motion.div
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePageChange(totalPages)}
-                          className="w-10 h-10 p-0"
+                      return (
+                        <motion.div
+                          key={i}
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
                         >
-                          {totalPages}
-                        </Button>
-                      </motion.div>
-                    </>
-                  )}
+                          <Button
+                            variant={currentPage === pageNum ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => handlePageChange(pageNum)}
+                            className="w-10 h-10 p-0"
+                          >
+                            {pageNum}
+                          </Button>
+                        </motion.div>
+                      );
+                    })}
 
-                  <motion.div
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={currentPage === totalPages}
-                      onClick={() => handlePageChange(currentPage + 1)}
-                      className="px-3"
+                    {totalPages > 5 && currentPage < totalPages - 2 && (
+                      <>
+                        <span className="flex items-center px-2">...</span>
+                        <motion.div
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handlePageChange(totalPages)}
+                            className="w-10 h-10 p-0"
+                          >
+                            {totalPages}
+                          </Button>
+                        </motion.div>
+                      </>
+                    )}
+
+                    <motion.div
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
                     >
-                      Next
-                    </Button>
-                  </motion.div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage === totalPages}
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        className="px-3"
+                      >
+                        Next
+                      </Button>
+                    </motion.div>
+                  </div>
                 </motion.div>
               )}
             </>

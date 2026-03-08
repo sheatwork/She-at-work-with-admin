@@ -17,7 +17,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   if (!role || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
-        <div className="text-center text-foreground">Loading dashboard...</div>
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 mx-auto border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading dashboard…</p>
+        </div>
       </div>
     );
   }
@@ -27,7 +30,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       <DashboardHeader user={user} role={role} />
       <div className="flex">
         <DashboardSidebar role={role} />
-        <main className="flex-1 p-6 bg-background">
+        <main className="flex-1 p-6 bg-background overflow-auto">
           {children}
         </main>
       </div>

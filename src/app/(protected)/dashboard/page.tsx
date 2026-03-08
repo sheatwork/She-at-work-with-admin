@@ -34,9 +34,6 @@ export default function Dashboard() {
       case "SUPER_ADMIN":
         router.replace("/dashboard/superadmin");
         break;
-      case "AUTHOR":
-        router.replace("/dashboard/author");
-        break;
       default:
         router.replace("/auth/login");
         break;

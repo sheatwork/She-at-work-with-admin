@@ -1,32 +1,27 @@
-// /app/components/blog/BlogPostContent.tsx
-'use client';
+// components/blogs/BlogPostContent.tsx
+"use client";
 
-import { useEffect, useState } from 'react';
-import { BlogWordPressConverter } from '@/lib/blog-wordpress-converter';
+// ✅ No useEffect needed — useState lazy initializer runs synchronously on mount
+// This eliminates the spinner flash that happened with the old useEffect approach.
+// DOMPurify is browser-only which is fine since this is a "use client" component.
+
+import { useState } from "react";
+import { BlogWordPressConverter } from "@/lib/blog-wordpress-converter";
 
 interface BlogPostContentProps {
   content: string;
 }
 
 export default function BlogPostContent({ content }: BlogPostContentProps) {
-  const [processedContent, setProcessedContent] = useState<string>('');
+  // Lazy initializer: runs once synchronously, no extra render cycle
+  const [processedContent] = useState<string>(
+    () => BlogWordPressConverter.convert(content ?? "")
+  );
 
-  useEffect(() => {
-    if (!content) return;
-    const converted = BlogWordPressConverter.convert(content);
-    setProcessedContent(converted);
-  }, [content]);
-
-  if (!processedContent) {
-    return (
-      <div className="flex justify-center py-12">
-        <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
-      </div>
-    );
-  }
+  if (!processedContent) return null;
 
   return (
-    <div 
+    <div
       className="blog-content"
       dangerouslySetInnerHTML={{ __html: processedContent }}
     />

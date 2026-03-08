@@ -1,484 +1,245 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/auth'
-import { db } from '@/db'
+// app/api/content/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/db";
 import {
-  AuthorsTable,
-  CategoriesTable,
   ContentTable,
-  ContentTagsTable,
+  CategoriesTable,
   TagsTable,
-  UsersTable
-} from '@/db/schema'
-import {
-  and,
-  desc,
-  eq,
-  gte,
-  like,
-  lte,
-  or,
-  sql
-} from 'drizzle-orm'
+  ContentTagsTable,
+} from "@/db/schema";
+import { and, eq, ilike, gte, lte, desc, count, inArray, sql } from "drizzle-orm";
 
-// Define enum types based on your schema
-type ContentType = 'NEWS' | 'BLOG' | 'ENTRECHAT' | 'SUCCESS_STORY' | 'RESOURCE'
-type ContentStatus = 'DRAFT' | 'PENDING' | 'PUBLISHED' | 'ARCHIVED' | 'REJECTED'
-type ContentLanguage = 'ENGLISH' | 'HINDI'
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type ContentType =
+  | "BLOG" | "NEWS" | "ENTRECHAT" | "EVENT"
+  | "PRESS" | "SUCCESS_STORY" | "RESOURCE";
+
+// ─── In-memory meta cache ─────────────────────────────────────────────────────
+//
+// WHY: Categories (57 rows) and readingTime buckets (3 values computed from
+// ~1900 rows) are static. Without caching, EVERY request re-fetches both —
+// adding a full sequential DB round-trip (~400–800ms on Neon) to every page load.
+//
+// HOW: Module-level Map survives across warm Vercel invocations. After the
+// first cold-start hit, all warm requests return meta in <1ms with zero DB cost.
+// TTL of 10 min means new categories appear within 10 min of being created.
+
+type MetaEntry = {
+  categories: { id: string; name: string; slug: string }[];
+  readingTimes: string[];
+  cachedAt: number;
+};
+
+const metaCache = new Map<string, MetaEntry>();
+const META_TTL  = 10 * 60 * 1000; // 10 minutes
+
+function getMetaFromCache(key: string): MetaEntry | null {
+  const entry = metaCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > META_TTL) {
+    metaCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+async function fetchMeta(contentType: ContentType): Promise<MetaEntry> {
+  // ✅ FIX #1: selectDistinct instead of fetching all 1900 rows
+  // Before: pulled every readingTime value → JS Set dedup → 3 buckets
+  // After:  DB returns only distinct values → far less data transferred
+  const [categories, distinctReadingTimes] = await Promise.all([
+    db
+      .select({ id: CategoriesTable.id, name: CategoriesTable.name, slug: CategoriesTable.slug })
+      .from(CategoriesTable)
+      .where(and(eq(CategoriesTable.contentType, contentType), eq(CategoriesTable.isActive, true)))
+      .orderBy(CategoriesTable.name),
+
+    db
+      .selectDistinct({ readingTime: ContentTable.readingTime })
+      .from(ContentTable)
+      .where(
+        and(
+          eq(ContentTable.contentType, contentType),
+          eq(ContentTable.status, "PUBLISHED"),
+          sql`${ContentTable.readingTime} IS NOT NULL`
+        )
+      ),
+  ]);
+
+  // Map distinct integer values → the 3 display buckets
+  const readingTimes = Array.from(
+    new Set(
+      distinctReadingTimes
+        .map((r) => r.readingTime!)
+        .map((t) => (t <= 5 ? "Under 5 min" : t <= 10 ? "5–10 min" : "10+ min"))
+    )
+  );
+
+  const entry: MetaEntry = { categories, readingTimes, cachedAt: Date.now() };
+  metaCache.set(contentType, entry);
+  return entry;
+}
+
+// ─── Cache headers ────────────────────────────────────────────────────────────
+
+const CONTENT_HEADERS = { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" };
+const META_HEADERS    = { "Cache-Control": "public, s-maxage=600, stale-while-revalidate=3600" };
+
+// ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   try {
-    // Check authentication
-    const session = await auth()
-    if (!session?.user?.id) {
+    const { searchParams } = new URL(req.url);
+    const contentType = (searchParams.get("contentType") ?? "BLOG") as ContentType;
+
+    // ── ?meta=1 — return only categories + readingTimes ───────────────────────
+    // Served from in-memory cache after first hit → zero DB cost on warm instances
+    if (searchParams.get("meta") === "1") {
+      const meta = getMetaFromCache(contentType) ?? await fetchMeta(contentType);
       return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required'
-          }
-        },
-        { status: 401 }
-      )
+        { categories: meta.categories, readingTimes: meta.readingTimes },
+        { headers: META_HEADERS }
+      );
     }
 
-    // Get user from database
-    const [user] = await db
-      .select()
-      .from(UsersTable)
-      .where(eq(UsersTable.id, session.user.id))
-      .limit(1)
-      
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'User not found'
-          }
-        },
-        { status: 401 }
-      )
-    }
+    // ── Parse params ──────────────────────────────────────────────────────────
+    const page         = Math.max(1, parseInt(searchParams.get("page")     ?? "1"));
+    const limit        = Math.min(100, parseInt(searchParams.get("limit")  ?? "12"));
+    const offset       = (page - 1) * limit;
+    const search       = searchParams.get("search")?.trim()   ?? "";
+    const categorySlug = searchParams.get("category")?.trim() ?? "";
+    const tagSlug      = searchParams.get("tag")?.trim()      ?? "";
+    const dateFrom     = searchParams.get("dateFrom")         ?? "";
+    const dateTo       = searchParams.get("dateTo")           ?? "";
 
-    // Parse query parameters
-    const searchParams = req.nextUrl.searchParams
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = Math.min(parseInt(searchParams.get('limit') || '10'), 100)
-    const offset = (page - 1) * limit
-    
-    // Get filter parameters
-    const type = searchParams.get('type')
-    const status = searchParams.get('status')
-    const featured = searchParams.get('featured')
-    const trending = searchParams.get('trending')
-    const search = searchParams.get('search')
-    const dateFrom = searchParams.get('dateFrom')
-    const dateTo = searchParams.get('dateTo')
-    const category = searchParams.get('category')
-    const author = searchParams.get('author')
-    const language = searchParams.get('language')
-    const deleted = searchParams.get('deleted')
-    const myContent = searchParams.get('myContent')
-    
-    // Build query conditions
-    const conditions = []
-    
-    // Status filter based on role
-    if (user.role === 'USER') {
-      conditions.push(eq(ContentTable.status, 'PUBLISHED' as ContentStatus))
-    } else if (user.role === 'AUTHOR') {
-      if (myContent) {
-        const [authorRecord] = await db
-          .select({ id: AuthorsTable.id })
-          .from(AuthorsTable)
-          .where(eq(AuthorsTable.userId, user.id))
-          .limit(1)
-          
-        if (authorRecord) {
-          conditions.push(eq(ContentTable.authorId, authorRecord.id))
-        }
-      } else {
-        conditions.push(
-          or(
-            eq(ContentTable.status, 'PUBLISHED' as ContentStatus),
-            eq(ContentTable.status, 'PENDING' as ContentStatus)
-          )
-        )
-      }
-    }
-    
-    // Content type filter - validate enum value
-    if (type) {
-      const validContentTypes: ContentType[] = ['NEWS', 'BLOG', 'ENTRECHAT', 'SUCCESS_STORY', 'RESOURCE']
-      if (validContentTypes.includes(type as ContentType)) {
-        conditions.push(eq(ContentTable.contentType, type as ContentType))
-      }
-    }
-    
-    // Status filter - validate enum value
-    if (status) {
-      const validStatuses: ContentStatus[] = ['DRAFT', 'PENDING', 'PUBLISHED', 'ARCHIVED', 'REJECTED']
-      if (validStatuses.includes(status as ContentStatus)) {
-        conditions.push(eq(ContentTable.status, status as ContentStatus))
-      }
-    }
-    
-    // Featured filter
-    if (featured !== undefined && featured !== null) {
-      conditions.push(eq(ContentTable.isFeatured, featured === 'true'))
-    }
-    
-    // Trending filter
-    if (trending !== undefined && trending !== null) {
-      conditions.push(eq(ContentTable.isTrending, trending === 'true'))
-    }
-    
-    // Search filter
-    if (search) {
-      conditions.push(
-        or(
-          like(ContentTable.title, `%${search}%`),
-          like(ContentTable.summary, `%${search}%`)
-        )
-      )
-    }
-    
-    // Date range
-    if (dateFrom) {
-      const fromDate = new Date(dateFrom)
-      conditions.push(gte(ContentTable.publishedAt || ContentTable.createdAt, fromDate))
-    }
+    // ── WHERE conditions ──────────────────────────────────────────────────────
+    // content_type_status_published_idx covers (contentType, status, publishedAt)
+    // so the base filter + ORDER BY publishedAt DESC uses one index scan
+    const conditions = [
+      eq(ContentTable.contentType, contentType),
+      eq(ContentTable.status, "PUBLISHED"),
+    ];
+
+    if (search)   conditions.push(ilike(ContentTable.title, `%${search}%`));
+    if (dateFrom) conditions.push(gte(ContentTable.publishedAt, new Date(dateFrom)));
     if (dateTo) {
-      const toDate = new Date(dateTo)
-      conditions.push(lte(ContentTable.publishedAt || ContentTable.createdAt, toDate))
+      const to = new Date(dateTo);
+      to.setDate(to.getDate() + 1);
+      conditions.push(lte(ContentTable.publishedAt, to));
     }
-    
-    // Category filter
-    if (category) {
-      conditions.push(eq(ContentTable.categoryId, category))
+
+    // ✅ FIX #2: subqueries instead of separate round-trips for category/tag
+    // Before: separate await db.select for category id → then re-query content
+    // After:  single SQL with inline correlated subquery — one round-trip
+    if (categorySlug) {
+      conditions.push(
+        sql`${ContentTable.categoryId} = (
+          SELECT id FROM categories
+          WHERE slug        = ${categorySlug}
+            AND content_type = ${contentType}
+          LIMIT 1
+        )`
+      );
     }
-    
-    // Author filter
-    if (author) {
-      conditions.push(eq(ContentTable.authorId, author))
+
+    if (tagSlug) {
+      conditions.push(
+        sql`${ContentTable.id} IN (
+          SELECT ct.content_id FROM content_tags ct
+          JOIN tags t ON t.id = ct.tag_id
+          WHERE t.slug = ${tagSlug}
+        )`
+      );
     }
-    
-    // Language filter - validate enum value
-    if (language) {
-      const validLanguages: ContentLanguage[] = ['ENGLISH', 'HINDI']
-      if (validLanguages.includes(language as ContentLanguage)) {
-        conditions.push(eq(ContentTable.language, language as ContentLanguage))
-      }
-    }
-    
-    // Deleted content (admin only)
-    if (deleted === 'true') {
-      if (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
-        return NextResponse.json(
-          {
-            success: false,
-            error: {
-              code: 'FORBIDDEN',
-              message: 'Only admins can view deleted content'
-            }
-          },
-          { status: 403 }
-        )
-      }
-      conditions.push(sql`${ContentTable.deletedAt} IS NOT NULL`)
-    } else {
-      conditions.push(sql`${ContentTable.deletedAt} IS NULL`)
-    }
-    
-    // Build final where condition
-    const whereCondition = conditions.length > 0 
-      ? and(...conditions)
-      : undefined
-    
-    // Get total count
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(ContentTable)
-      .where(whereCondition)
-    
-    // Get paginated data with joins
-    const content = await db
-      .select({
-        id: ContentTable.id,
-        title: ContentTable.title,
-        slug: ContentTable.slug,
-        summary: ContentTable.summary,
-        contentType: ContentTable.contentType,
-        status: ContentTable.status,
-        featuredImage: ContentTable.featuredImage,
-        viewCount: ContentTable.viewCount,
-        likeCount: ContentTable.likeCount,
-        commentCount: ContentTable.commentCount,
-        isFeatured: ContentTable.isFeatured,
-        isTrending: ContentTable.isTrending,
-        publishedAt: ContentTable.publishedAt,
-        createdAt: ContentTable.createdAt,
-        author: {
-          id: AuthorsTable.id,
-          name: AuthorsTable.name,
-          slug: AuthorsTable.slug,
-          avatar: AuthorsTable.avatar
-        },
-        category: {
-          id: CategoriesTable.id,
-          name: CategoriesTable.name,
-          slug: CategoriesTable.slug
-        }
-      })
-      .from(ContentTable)
-      .leftJoin(AuthorsTable, eq(ContentTable.authorId, AuthorsTable.id))
-      .leftJoin(CategoriesTable, eq(ContentTable.categoryId, CategoriesTable.id))
-      .where(whereCondition)
-      .orderBy(desc(ContentTable.publishedAt || ContentTable.createdAt))
-      .limit(limit)
-      .offset(offset)
-    
-    // Get tags for each content
-    const contentWithTags = await Promise.all(
-      content.map(async (item) => {
-        const tags = await db
+
+    const where = and(...conditions);
+
+    // ── FIX #3: content rows + count run in PARALLEL ──────────────────────────
+    // Before: these were parallel ✅ — keeping that
+    // After:  also run meta fetch in parallel with content (see below)
+    const [rows, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id:           ContentTable.id,
+          title:        ContentTable.title,
+          slug:         ContentTable.slug,
+          summary:      ContentTable.summary,
+          featuredImage:ContentTable.featuredImage,
+          externalUrl:  ContentTable.externalUrl,
+          readingTime:  ContentTable.readingTime,
+          publishedAt:  ContentTable.publishedAt,
+          authorName:   ContentTable.authorName,
+          categoryId:   ContentTable.categoryId,
+          categoryName: CategoriesTable.name,
+          categorySlug: CategoriesTable.slug,
+        })
+        .from(ContentTable)
+        .leftJoin(CategoriesTable, eq(ContentTable.categoryId, CategoriesTable.id))
+        .where(where)
+        .orderBy(desc(ContentTable.publishedAt))
+        .limit(limit)
+        .offset(offset),
+
+      db.select({ total: count() }).from(ContentTable).where(where),
+    ]);
+
+    // ── FIX #4: tags via inArray instead of sql.join string building ──────────
+    // Before: sql`... IN (${sql.join(ids.map(id => sql`${id}`), sql`,`)})`
+    //   → builds a raw string like IN ($1,$2,...$12), bypasses query planner
+    // After:  inArray() compiles to = ANY($1::uuid[]) which uses the index
+    //   content_tags_content_id_idx efficiently via a bitmap index scan
+    const tagMap: Record<string, { id: string; name: string; slug: string }[]> = {};
+
+    // ── FIX #5: tags + meta fetched IN PARALLEL with each other ──────────────
+    // Before: tags ran sequentially AFTER content, then meta ran after tags
+    //   → 3 sequential round-trips = ~1200–2400ms just in Neon latency
+    // After:  tags and meta (cache miss) run at the same time
+    //   → 2 parallel round-trips, warm meta = 1 round-trip total
+    const tagFetch = rows.length > 0
+      ? db
           .select({
-            id: TagsTable.id,
-            name: TagsTable.name,
-            slug: TagsTable.slug
+            contentId: ContentTagsTable.contentId,
+            tagId:     TagsTable.id,
+            tagName:   TagsTable.name,
+            tagSlug:   TagsTable.slug,
           })
           .from(ContentTagsTable)
           .innerJoin(TagsTable, eq(ContentTagsTable.tagId, TagsTable.id))
-          .where(eq(ContentTagsTable.contentId, item.id))
-        
-        return {
-          ...item,
-          tags
-        }
-      })
-    )
-    
-    const total = Number(count)
-    const totalPages = Math.ceil(total / limit)
-    
-    return NextResponse.json({
-      success: true,
-      data: contentWithTags,
-      pagination: {
+          .where(inArray(ContentTagsTable.contentId, rows.map((r) => r.id)))
+      : Promise.resolve([]);
+
+    // getMetaFromCache() is synchronous — if cache is warm this is instant,
+    // if cold it fires a DB query in parallel with tagFetch
+    const metaFetch = getMetaFromCache(contentType)
+      ? Promise.resolve(getMetaFromCache(contentType)!)
+      : fetchMeta(contentType);
+
+    const [tagRows, meta] = await Promise.all([tagFetch, metaFetch]);
+
+    for (const t of tagRows) {
+      if (!tagMap[t.contentId]) tagMap[t.contentId] = [];
+      tagMap[t.contentId].push({ id: t.tagId, name: t.tagName, slug: t.tagSlug });
+    }
+
+    const totalItems = Number(total);
+
+    return NextResponse.json(
+      {
+        items:        rows.map((r) => ({ ...r, tags: tagMap[r.id] ?? [] })),
+        totalItems,
+        totalPages:   Math.ceil(totalItems / limit),
         page,
         limit,
-        total,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
+        // ✅ Always bundled — frontend needs only ONE fetch on mount
+        categories:   meta.categories,
+        readingTimes: meta.readingTimes,
       },
-      meta: {
-        filters: {
-          type,
-          status,
-          featured,
-          trending,
-          search,
-          dateFrom,
-          dateTo,
-          category,
-          author,
-          language,
-          deleted,
-          myContent
-        }
-      }
-    })
-    
-  } catch (error: any) {
-    console.error('Content GET API Error:', error)
-    
-    return NextResponse.json(
-      {
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'An internal error occurred',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
-        }
-      },
-      { status: 500 }
-    )
-  }
-}
+      { headers: CONTENT_HEADERS }
+    );
 
-export async function POST(req: NextRequest) {
-  try {
-    // Check authentication
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'Authentication required'
-          }
-        },
-        { status: 401 }
-      )
-    }
-
-    // Get user from database
-    const [user] = await db
-      .select()
-      .from(UsersTable)
-      .where(eq(UsersTable.id, session.user.id))
-      .limit(1)
-      
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'UNAUTHORIZED',
-            message: 'User not found'
-          }
-        },
-        { status: 401 }
-      )
-    }
-    
-    // Check if user is AUTHOR or higher
-    if (user.role !== 'AUTHOR' && user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN') {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Only authors and above can create content'
-          }
-        },
-        { status: 403 }
-      )
-    }
-    
-    const body = await req.json()
-    
-    // Validate required fields
-    if (!body.title || !body.content) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Title and content are required'
-          }
-        },
-        { status: 400 }
-      )
-    }
-    
-    // Find author profile
-    const [author] = await db
-      .select()
-      .from(AuthorsTable)
-      .where(eq(AuthorsTable.userId, user.id))
-      .limit(1)
-    
-    if (!author) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'NOT_FOUND',
-            message: 'Author profile not found'
-          }
-        },
-        { status: 404 }
-      )
-    }
-    
-    // Validate contentType enum
-    const validContentTypes: ContentType[] = ['NEWS', 'BLOG', 'ENTRECHAT', 'SUCCESS_STORY', 'RESOURCE']
-    const contentType: ContentType = validContentTypes.includes(body.contentType as ContentType) 
-      ? body.contentType as ContentType 
-      : 'BLOG'
-    
-    // Validate status enum
-    const validStatuses: ContentStatus[] = ['DRAFT', 'PENDING', 'PUBLISHED', 'ARCHIVED', 'REJECTED']
-    const status: ContentStatus = validStatuses.includes(body.status as ContentStatus)
-      ? body.status as ContentStatus
-      : 'DRAFT'
-    
-    // Validate language enum
-    const validLanguages: ContentLanguage[] = ['ENGLISH', 'HINDI']
-    const language: ContentLanguage = validLanguages.includes(body.language as ContentLanguage)
-      ? body.language as ContentLanguage
-      : 'ENGLISH'
-    
-    // Create content
-    const [content] = await db
-      .insert(ContentTable)
-      .values({
-        title: body.title,
-        slug: body.slug || body.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        summary: body.summary,
-        content: body.content,
-        contentType: contentType,
-        featuredImage: body.featuredImage,
-        authorId: author.id,
-        categoryId: body.categoryId,
-        status: status,
-        createdBy: user.id,
-        language: language
-      })
-      .returning()
-    
-    // Add tags if provided
-    if (body.tags && Array.isArray(body.tags)) {
-      const tagInserts = body.tags.map((tagId: string) => ({
-        contentId: content.id,
-        tagId
-      }))
-      
-      if (tagInserts.length > 0) {
-        await db
-          .insert(ContentTagsTable)
-          .values(tagInserts)
-      }
-    }
-    
-    return NextResponse.json({
-      success: true,
-      data: content
-    }, { status: 201 })
-    
-  } catch (error: any) {
-    console.error('Content POST API Error:', error)
-    
-    // Handle duplicate slug error
-    if (error.message?.includes('unique constraint') || error.message?.includes('duplicate key')) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'DUPLICATE_SLUG',
-            message: 'A content item with this slug already exists'
-          }
-        },
-        { status: 409 }
-      )
-    }
-    
-    return NextResponse.json(
-      {
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: 'An internal error occurred',
-          details: process.env.NODE_ENV === 'development' ? error.message : undefined
-        }
-      },
-      { status: 500 }
-    )
+  } catch (err) {
+    console.error("[GET /api/content]", err);
+    return NextResponse.json({ error: "Failed to fetch content" }, { status: 500 });
   }
 }

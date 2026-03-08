@@ -15,6 +15,27 @@
       "when": 1740051907719,
       "tag": "0001_perpetual_diamondback",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772871714037,
+      "tag": "0003_lean_firebrand",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772874466977,
+      "tag": "0004_nappy_prowler",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772997967975,
+      "tag": "0005_gigantic_the_liberteens",
+      "breakpoints": true
     }
   ]
 }
