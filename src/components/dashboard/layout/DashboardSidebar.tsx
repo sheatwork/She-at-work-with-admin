@@ -4,8 +4,8 @@
 
 import { cn } from "@/lib/utils";
 import {
-  BarChart3, BookOpen, ChevronRight, FileText,
-  FolderTree, Home, Mail, Shield, TrendingUp, Users,
+  BarChart3, BookOpen, ChevronRight,
+  FolderTree, Home, Mail, Shield, TrendingUp, Users
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
