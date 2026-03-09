@@ -1,460 +1,378 @@
-'use client'
+// components/dashboard/admin/categories/CategoriesTable.tsx
+"use client";
 
+import { Button } from "@/components/ui/button";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+  Dialog, DialogContent, DialogDescription,
+  DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Input } from '@/components/ui/input'
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Edit, Eye, Filter, Loader2, MoreVertical, Search, Trash2 } from 'lucide-react'
-import Link from 'next/link'
-import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
+  Check, Edit, Filter, FolderOpen, RefreshCw,
+  Search, Trash2, X, XCircle,
+} from "lucide-react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-interface Category {
-  id: string
-  name: string
-  slug: string
-  description: string | null
-  image: string | null
-  icon: string | null
-  color: string | null
-  parentId: string | null
-  sortOrder: number
-  contentTypes: string[] | null
-  isActive: boolean
-  isFeatured: boolean
-  createdAt: string
-  updatedAt: string
-  creator: {
-    id: string
-    name: string
-    email: string
-  } | null
-  parentCategory: {
-    id: string
-    name: string
-    slug: string
-  } | null
-}
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
-interface CategoriesResponse {
-  success: boolean
-  data: Category[]
-  pagination: {
-    total: number
-    page: number
-    limit: number
-    pages: number
-  }
-}
+type Category = {
+  id:          string;
+  name:        string;
+  slug:        string;
+  contentType: string;
+  description: string | null;
+  isActive:    boolean;
+  createdAt:   string;
+};
+
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+const CONTENT_TYPES = [
+  "BLOG","NEWS","ENTRECHAT","EVENT","PRESS","SUCCESS_STORY","RESOURCE",
+] as const;
+
+const TYPE_STYLES: Record<string, string> = {
+  BLOG:          "bg-purple-100 text-purple-800",
+  NEWS:          "bg-blue-100 text-blue-800",
+  ENTRECHAT:     "bg-pink-100 text-pink-800",
+  SUCCESS_STORY: "bg-emerald-100 text-emerald-800",
+  RESOURCE:      "bg-indigo-100 text-indigo-800",
+  EVENT:         "bg-orange-100 text-orange-800",
+  PRESS:         "bg-cyan-100 text-cyan-800",
+};
+
+// ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function CategoriesTable() {
-  const [categories, setCategories] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [items,       setItems]       = useState<Category[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(false);
+  const [search,      setSearch]      = useState("");
+  const [debouncedQ,  setDebouncedQ]  = useState("");
+  const [filterType,  setFilterType]  = useState("");
+  const [filterActive,setFilterActive]= useState<"all"|"active"|"inactive">("all");
+  const [processing,  setProcessing]  = useState<string | null>(null);
+  const [deleteTarget,setDeleteTarget]= useState<Category | null>(null);
+  const [toast,       setToast]       = useState<{ msg: string; ok: boolean } | null>(null);
 
-  const fetchCategories = async () => {
-    try {
-      setLoading(true)
-      const params = new URLSearchParams({
-        page: page.toString(),
-        search,
-        ...(statusFilter !== 'all' && { status: statusFilter }),
-      })
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-      const response = await fetch(`/api/categories?${params}`)
-      const data: CategoriesResponse = await response.json()
+  const showToast = (msg: string, ok = true) => {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3500);
+  };
 
-      if (data.success) {
-        setCategories(data.data)
-        setTotalPages(data.pagination.pages)
-      } else {
-        toast.error('Failed to fetch categories')
-      }
-    } catch (error) {
-      toast.error('Failed to fetch categories')
-      console.error(error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // Debounce search
   useEffect(() => {
-    fetchCategories()
-  }, [page, statusFilter])
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedQ(search), 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [search]);
 
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      if (page === 1) {
-        fetchCategories()
-      } else {
-        setPage(1)
-      }
-    }, 500)
-
-    return () => clearTimeout(delayDebounceFn)
-  }, [search])
-
-  const handleDelete = async (id: string) => {
+  // Fetch — always load all (filter client-side for fast UX, total count is small)
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    setError(false);
     try {
-      setDeletingId(id)
-      const response = await fetch(`/api/categories/${id}`, {
-        method: 'DELETE',
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        toast.success('Category deactivated successfully')
-        fetchCategories()
-      } else {
-        toast.error(data.error || 'Failed to delete category')
-      }
-    } catch (error) {
-      toast.error('Failed to delete category')
-      console.error(error)
+      const res = await fetch("/api/admin/categories?activeOnly=false");
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setItems(data.data ?? []);
+    } catch {
+      setError(true);
     } finally {
-      setDeletingId(null)
+      setLoading(false);
     }
-  }
+  }, []);
 
-  const handleToggleStatus = async (id: string, currentStatus: boolean) => {
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Client-side filter
+  const filtered = items.filter((c) => {
+    const q = debouncedQ.toLowerCase();
+    if (q && !c.name.toLowerCase().includes(q) && !c.slug.toLowerCase().includes(q)) return false;
+    if (filterType && c.contentType !== filterType) return false;
+    if (filterActive === "active"   && !c.isActive) return false;
+    if (filterActive === "inactive" &&  c.isActive) return false;
+    return true;
+  });
+
+  // Toggle active/inactive (soft delete = set isActive=false)
+  const toggleActive = async (cat: Category) => {
+    setProcessing(cat.id);
     try {
-      const response = await fetch(`/api/categories/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          isActive: !currentStatus,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        toast.success(`Category ${!currentStatus ? 'activated' : 'deactivated'} successfully`)
-        fetchCategories()
-      } else {
-        toast.error(data.error || 'Failed to update category')
-      }
-    } catch (error) {
-      toast.error('Failed to update category')
-      console.error(error)
+      const res = await fetch(`/api/admin/categories/${cat.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive: !cat.isActive }),
+      });
+      if (!res.ok) throw new Error();
+      showToast(`"${cat.name}" ${cat.isActive ? "deactivated" : "activated"}`);
+      fetchAll();
+    } catch {
+      showToast("Action failed", false);
+    } finally {
+      setProcessing(null);
     }
-  }
+  };
 
-  const handleToggleFeatured = async (id: string, currentFeatured: boolean) => {
+  // Hard delete via soft-delete API (sets isActive=false permanently in UI flow)
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setProcessing(deleteTarget.id);
     try {
-      const response = await fetch(`/api/categories/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          isFeatured: !currentFeatured,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        toast.success(`Category ${!currentFeatured ? 'marked as featured' : 'unfeatured'} successfully`)
-        fetchCategories()
-      } else {
-        toast.error(data.error || 'Failed to update category')
-      }
-    } catch (error) {
-      toast.error('Failed to update category')
-      console.error(error)
+      const res = await fetch(`/api/admin/categories/${deleteTarget.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      showToast(`"${deleteTarget.name}" deactivated`);
+      setDeleteTarget(null);
+      fetchAll();
+    } catch {
+      showToast("Failed to delete", false);
+    } finally {
+      setProcessing(null);
     }
-  }
+  };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
-  }
+  const clearFilters = () => { setSearch(""); setFilterType(""); setFilterActive("all"); };
+  const isFiltered = !!search || !!filterType || filterActive !== "all";
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="flex-1">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <Input
-              placeholder="Search categories..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
-              <Filter className="mr-2 h-4 w-4" />
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="inactive">Inactive</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Slug</TableHead>
-              <TableHead>Parent</TableHead>
-              <TableHead>Content Types</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Featured</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8">
-                  <div className="flex items-center justify-center">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : categories.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center py-8">
-                  <p className="text-muted-foreground">No categories found</p>
-                </TableCell>
-              </TableRow>
-            ) : (
-              categories.map((category) => (
-                <TableRow key={category.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-3">
-                      {category.icon && (
-                        <span className="text-xl">{category.icon}</span>
-                      )}
-                      <div>
-                        <div className="font-medium">{category.name}</div>
-                        {category.description && (
-                          <div className="text-sm text-muted-foreground line-clamp-1">
-                            {category.description}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <code className="bg-muted px-2 py-1 rounded text-xs">
-                      {category.slug}
-                    </code>
-                  </TableCell>
-                  <TableCell>
-                    {category.parentCategory ? (
-                      <Badge variant="outline">
-                        {category.parentCategory.name}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">None</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {category.contentTypes?.map((type) => (
-                        <Badge key={type} variant="secondary" className="text-xs">
-                          {type}
-                        </Badge>
-                      )) || (
-                        <span className="text-muted-foreground text-sm">All</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={category.isActive ? 'default' : 'secondary'}>
-                      {category.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={category.isFeatured ? 'default' : 'outline'}>
-                      {category.isFeatured ? 'Yes' : 'No'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="text-sm">
-                      {formatDate(category.createdAt)}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                          <Link href={`/dashboard/admin/categories/${category.id}`}>
-                            <Eye className="mr-2 h-4 w-4" />
-                            View Details
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/dashboard/admin/categories/${category.id}/edit`}>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleToggleStatus(category.id, category.isActive)}
-                        >
-                          <Badge variant="outline" className="mr-2">
-                            {category.isActive ? 'Deactivate' : 'Activate'}
-                          </Badge>
-                          {category.isActive ? 'Deactivate' : 'Activate'}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleToggleFeatured(category.id, category.isFeatured)}
-                        >
-                          <Badge variant="outline" className="mr-2">
-                            {category.isFeatured ? 'Unfeature' : 'Feature'}
-                          </Badge>
-                          {category.isFeatured ? 'Unfeature' : 'Feature'}
-                        </DropdownMenuItem>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onSelect={(e) => e.preventDefault()}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will deactivate the category. It will no longer be visible
-                                on the platform. This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleDelete(category.id)}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                {deletingId === category.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  'Delete'
-                                )}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {totalPages > 1 && (
-        <Pagination>
-          <PaginationContent>
-            <PaginationItem>
-              <PaginationPrevious
-                onClick={() => setPage(Math.max(1, page - 1))}
-                className={page === 1 ? 'pointer-events-none opacity-50' : ''}
-              />
-            </PaginationItem>
-            
-            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              let pageNum
-              if (totalPages <= 5) {
-                pageNum = i + 1
-              } else if (page <= 3) {
-                pageNum = i + 1
-              } else if (page >= totalPages - 2) {
-                pageNum = totalPages - 4 + i
-              } else {
-                pageNum = page - 2 + i
-              }
-              
-              return (
-                <PaginationItem key={pageNum}>
-                  <PaginationLink
-                    onClick={() => setPage(pageNum)}
-                    isActive={pageNum === page}
-                  >
-                    {pageNum}
-                  </PaginationLink>
-                </PaginationItem>
-              )
-            })}
-            
-            <PaginationItem>
-              <PaginationNext
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
-                className={page === totalPages ? 'pointer-events-none opacity-50' : ''}
-              />
-            </PaginationItem>
-          </PaginationContent>
-        </Pagination>
+      {/* Toast */}
+      {toast && (
+        <div className={cn(
+          "fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-sm font-medium",
+          toast.ok ? "bg-green-600 text-white" : "bg-red-600 text-white"
+        )}>
+          {toast.ok ? <Check className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+          {toast.msg}
+        </div>
       )}
+
+      {/* Toolbar */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        {/* Search */}
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Search categories…" value={search}
+            onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          {search && (
+            <button onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2">
+              <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+            </button>
+          )}
+        </div>
+
+        {/* Type filter */}
+        <Select value={filterType || "ALL"} onValueChange={(v) => setFilterType(v === "ALL" ? "" : v)}>
+          <SelectTrigger className="w-[160px]">
+            <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All Types</SelectItem>
+            {CONTENT_TYPES.map((t) => (
+              <SelectItem key={t} value={t} className="capitalize">
+                {t.toLowerCase().replace("_", " ")}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Active filter */}
+        <Select value={filterActive} onValueChange={(v) => setFilterActive(v as typeof filterActive)}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="active">Active only</SelectItem>
+            <SelectItem value="inactive">Inactive only</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Button variant="outline" size="icon" onClick={fetchAll} disabled={loading} title="Refresh">
+          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+        </Button>
+
+        {isFiltered && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-primary">
+            <X className="h-3 w-3" /> Clear
+          </Button>
+        )}
+      </div>
+
+      {/* Count */}
+      <p className="text-sm text-muted-foreground">
+        {filtered.length} of {items.length} categor{items.length !== 1 ? "ies" : "y"}
+      </p>
+
+      {/* Table */}
+      {loading ? (
+        <div className="flex items-center justify-center h-48">
+          <RefreshCw className="h-7 w-7 animate-spin text-muted-foreground" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-3">
+          <XCircle className="h-9 w-9 text-destructive" />
+          <p className="text-sm text-muted-foreground">Failed to load categories</p>
+          <Button variant="outline" size="sm" onClick={fetchAll}>Try again</Button>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-3">
+          <FolderOpen className="h-9 w-9 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            {isFiltered ? "No categories match your filters." : "No categories yet."}
+          </p>
+          {isFiltered && (
+            <Button variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/40">
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Slug</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Description</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Created</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((cat) => (
+                <tr key={cat.id} className={cn(
+                  "border-b transition-colors hover:bg-muted/20",
+                  !cat.isActive && "opacity-60"
+                )}>
+                  {/* Name */}
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-foreground">{cat.name}</p>
+                  </td>
+
+                  {/* Type */}
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize",
+                      TYPE_STYLES[cat.contentType] ?? "bg-secondary text-muted-foreground"
+                    )}>
+                      {cat.contentType.toLowerCase().replace("_", " ")}
+                    </span>
+                  </td>
+
+                  {/* Slug */}
+                  <td className="px-4 py-3 hidden md:table-cell">
+                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                      {cat.slug}
+                    </code>
+                  </td>
+
+                  {/* Description */}
+                  <td className="px-4 py-3 hidden lg:table-cell max-w-xs">
+                    <span className="text-muted-foreground line-clamp-1 text-xs">
+                      {cat.description ?? "—"}
+                    </span>
+                  </td>
+
+                  {/* Status */}
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border",
+                      cat.isActive
+                        ? "bg-green-100 text-green-800 border-green-200"
+                        : "bg-secondary text-muted-foreground border-border"
+                    )}>
+                      {cat.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </td>
+
+                  {/* Created */}
+                  <td className="px-4 py-3 hidden sm:table-cell text-xs text-muted-foreground whitespace-nowrap">
+                    {format(new Date(cat.createdAt), "MMM d, yyyy")}
+                  </td>
+
+                  {/* Actions */}
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1">
+                      {/* Edit */}
+                      <Link href={`/dashboard/admin/categories/${cat.id}/edit`}>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Edit">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </Link>
+
+                      {/* Toggle active */}
+                      <Button variant="ghost" size="sm"
+                        className={cn(
+                          "h-8 w-8 p-0",
+                          cat.isActive
+                            ? "text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                            : "text-green-600 hover:text-green-700 hover:bg-green-50"
+                        )}
+                        onClick={() => toggleActive(cat)}
+                        disabled={processing === cat.id}
+                        title={cat.isActive ? "Deactivate" : "Activate"}>
+                        {processing === cat.id
+                          ? <RefreshCw className="h-4 w-4 animate-spin" />
+                          : cat.isActive ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                      </Button>
+
+                      {/* Delete */}
+                      <Button variant="ghost" size="sm"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleteTarget(cat)}
+                        disabled={processing === cat.id}
+                        title="Delete">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deactivate Category</DialogTitle>
+            <DialogDescription>
+              This will soft-delete the category. Existing content linked to it won&apos;t be affected.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteTarget && (
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+              <p className="font-medium text-sm text-amber-900">{deleteTarget.name}</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                {deleteTarget.contentType.toLowerCase().replace("_", " ")} · {deleteTarget.slug}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={processing === deleteTarget?.id}>
+              {processing === deleteTarget?.id
+                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Deactivating…</>
+                : <><Trash2 className="h-4 w-4 mr-2" />Deactivate</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
-  )
+  );
 }

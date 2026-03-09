@@ -81,14 +81,14 @@ export default function DashboardHeader({ user, role }: DashboardHeaderProps) {
             <DropdownMenuSeparator className="bg-border" />
             <DropdownMenuItem
               onClick={() => router.push("/dashboard/profile")}
-              className="text-foreground hover:bg-secondary/20 focus:bg-secondary/20 cursor-pointer"
+              className="text-foreground hover:text-primary hover:bg-secondary/20  cursor-pointer"
             >
               Profile Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-border" />
             <DropdownMenuItem
               onClick={handleLogout}
-              className="text-accent hover:bg-accent/10 focus:bg-accent/10 cursor-pointer font-medium"
+              className="text-accent hover:text-primary hover:bg-accent/10  cursor-pointer font-medium"
             >
               Log out
             </DropdownMenuItem>

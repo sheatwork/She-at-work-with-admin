@@ -1,25 +1,15 @@
-/*eslint-disable @typescript-eslint/no-unused-vars */
+
 // src/components/dashboard/layout/DashboardSidebar.tsx
 "use client";
 
 import { cn } from "@/lib/utils";
 import {
-  BarChart3,
-  BookOpen,
-  ChevronRight,
-  FileCheck,
-  FolderTree,
-  Home,
-  Mail,
-  Settings,
-  Shield,
-  TrendingUp,
-  Users,
+  BarChart3, BookOpen, ChevronRight, FileText,
+  FolderTree, Home, Mail, Shield, TrendingUp, Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// UserRole enum values from schema: SUPER_ADMIN | ADMIN | USER
 type Role = "SUPER_ADMIN" | "ADMIN" | "USER";
 
 interface NavItem {
@@ -39,19 +29,19 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["USER", "ADMIN", "SUPER_ADMIN"],
     group: "common",
   },
-  {
-    href:  "/dashboard/settings",
-    label: "Settings",
-    icon:  <Settings className="h-5 w-5" />,
-    roles: ["USER", "ADMIN", "SUPER_ADMIN"],
-    group: "common",
-  },
 
-  // ── Admin — matches /api/admin/* routes ──────────────────────────────────
+  // ── Admin ─────────────────────────────────────────────────────────────────
   {
     href:  "/dashboard/admin/content",
     label: "Content",
     icon:  <BookOpen className="h-5 w-5" />,
+    roles: ["ADMIN", "SUPER_ADMIN"],
+    group: "admin",
+  },
+  {
+    href:  "/dashboard/admin/resources",
+    label: "Resources",
+    icon:  <FileText className="h-5 w-5" />,
     roles: ["ADMIN", "SUPER_ADMIN"],
     group: "admin",
   },
@@ -71,13 +61,13 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href:  "/dashboard/admin/contact-submissions",
-    label: "Contact Submissions",
+    label: "Contact Messages",
     icon:  <Mail className="h-5 w-5" />,
     roles: ["ADMIN", "SUPER_ADMIN"],
     group: "admin",
   },
 
-  // ── Super Admin — matches /api/superadmin/* routes ───────────────────────
+  // ── Super Admin ───────────────────────────────────────────────────────────
   {
     href:  "/dashboard/superadmin/admins",
     label: "Admin Management",
@@ -102,7 +92,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const GROUP_LABELS: Record<string, string> = {
-  common:     "",               // no label — general nav
+  common:     "",
   admin:      "Administration",
   superadmin: "Super Admin",
 };
@@ -139,17 +129,17 @@ export default function DashboardSidebar({ role }: DashboardSidebarProps) {
 
   return (
     <aside className="w-64 bg-card border-r border-border min-h-[calc(100vh-4rem)] flex flex-col">
-      <nav className="p-4 flex-1">
+      <nav className="p-4 flex-1 space-y-5">
         {groups.map(({ name, items }) => (
-          <div key={name} className="mb-6">
+          <div key={name}>
+            {/* Group label */}
             {GROUP_LABELS[name] && (
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 px-3">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest px-3 mb-1">
                 {GROUP_LABELS[name]}
-              </h3>
+              </p>
             )}
             <div className="space-y-1">
               {items.map((item) => {
-                // Match exact path for /dashboard, prefix match for everything else
                 const isActive =
                   item.href === "/dashboard"
                     ? pathname === "/dashboard"
@@ -160,7 +150,7 @@ export default function DashboardSidebar({ role }: DashboardSidebarProps) {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "group flex items-center justify-between gap-3 px-3 py-3 rounded-xl transition-all duration-200",
+                      "group flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition-all duration-200",
                       isActive
                         ? "bg-gradient-to-r from-primary/10 to-primary/5 text-primary border-l-4 border-primary"
                         : "text-muted-foreground hover:bg-secondary/20 hover:text-foreground hover:border-l-4 hover:border-secondary"

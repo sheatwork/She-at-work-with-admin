@@ -1,45 +1,41 @@
-import { Metadata } from 'next'
-
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import Link from 'next/link'
-import { PlusCircle } from 'lucide-react'
-import CategoriesTable from '@/components/dashboard/admin/categories/CategoriesTable'
+// app/dashboard/admin/categories/page.tsx
+import CategoriesTable from "@/components/dashboard/admin/categories/CategoriesTable";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { PlusCircle } from "lucide-react";
+import { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: 'Categories Management | Admin Dashboard',
-  description: 'Manage content categories',
-}
+  title: "Categories · Admin Dashboard",
+  description: "Manage content categories",
+};
 
 export default function CategoriesPage() {
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Categories Management</h1>
-          <p className="text-muted-foreground">
-            Create, edit, and manage content categories for your platform
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Categories</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Organise your content with categories across all content types
           </p>
         </div>
         <Button asChild>
           <Link href="/dashboard/admin/categories/create">
             <PlusCircle className="mr-2 h-4 w-4" />
-            Add New Category
+            New Category
           </Link>
         </Button>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>All Categories</CardTitle>
-          <CardDescription>
-            Manage your content categories. Categories help organize and structure your content.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <CategoriesTable />
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

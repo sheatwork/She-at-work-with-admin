@@ -1,47 +1,58 @@
 // app/api/admin/story-submissions/route.ts
-// SUPER_ADMIN + ADMIN: list story submissions
+// ADMIN: paginated list of story submissions
+// Query: ?status=PENDING&page=1&limit=20&search=
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { StorySubmissionsTable, UsersTable } from "@/db/schema";
-import { eq, and, desc, count } from "drizzle-orm";
+import { eq, and, desc, count, ilike, or } from "drizzle-orm";
 
-// ─── GET /api/admin/story-submissions ────────────────────────────────────────
-// Query: ?status=PENDING&page=1&limit=20
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status") as typeof StorySubmissionsTable.$inferSelect["status"] | null;
-    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
-    const limit = Math.min(100, parseInt(searchParams.get("limit") ?? "20"));
+    const search = searchParams.get("search")?.trim() || null;
+    const page   = Math.max(1, parseInt(searchParams.get("page")  ?? "1"));
+    const limit  = Math.min(100, parseInt(searchParams.get("limit") ?? "20"));
     const offset = (page - 1) * limit;
 
     const conditions = [];
     if (status) conditions.push(eq(StorySubmissionsTable.status, status));
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    if (search) {
+      conditions.push(
+        or(
+          ilike(StorySubmissionsTable.name,         `%${search}%`),
+          ilike(StorySubmissionsTable.title,        `%${search}%`),
+          ilike(StorySubmissionsTable.email,        `%${search}%`),
+          ilike(StorySubmissionsTable.businessName, `%${search}%`),
+        )
+      );
+    }
+    const where = conditions.length ? and(...conditions) : undefined;
 
     const [rows, [{ total }]] = await Promise.all([
       db
         .select({
-          id: StorySubmissionsTable.id,
-          name: StorySubmissionsTable.name,
-          email: StorySubmissionsTable.email,
-          phone: StorySubmissionsTable.phone,
-          title: StorySubmissionsTable.title,
+          id:           StorySubmissionsTable.id,
+          name:         StorySubmissionsTable.name,
+          email:        StorySubmissionsTable.email,
+          phone:        StorySubmissionsTable.phone,
+          title:        StorySubmissionsTable.title,
           businessName: StorySubmissionsTable.businessName,
-          industry: StorySubmissionsTable.industry,
-          status: StorySubmissionsTable.status,
-          submittedAt: StorySubmissionsTable.submittedAt,
-          reviewedAt: StorySubmissionsTable.reviewedAt,
+          industry:     StorySubmissionsTable.industry,
+          status:       StorySubmissionsTable.status,
+          submittedAt:  StorySubmissionsTable.submittedAt,
+          reviewedAt:   StorySubmissionsTable.reviewedAt,
           reviewerName: UsersTable.name,
+          publishedContentId: StorySubmissionsTable.publishedContentId,
         })
         .from(StorySubmissionsTable)
         .leftJoin(UsersTable, eq(StorySubmissionsTable.reviewedBy, UsersTable.id))
-        .where(whereClause)
+        .where(where)
         .orderBy(desc(StorySubmissionsTable.submittedAt))
         .limit(limit)
         .offset(offset),
-      db.select({ total: count() }).from(StorySubmissionsTable).where(whereClause),
+      db.select({ total: count() }).from(StorySubmissionsTable).where(where),
     ]);
 
     return NextResponse.json({

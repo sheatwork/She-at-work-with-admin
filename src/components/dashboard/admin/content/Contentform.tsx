@@ -17,17 +17,18 @@ import { cn } from "@/lib/utils";
 import { Check, RefreshCw, Save, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import ImageUploader from "./ImageUploader";
+import RichTextEditor from "./RichTextEditor";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
+// SUCCESS_STORY and RESOURCE are managed via their own dedicated CRUD pages
 export const CONTENT_TYPES = [
-  { value: "BLOG",          label: "Blog" },
-  { value: "NEWS",          label: "News" },
-  { value: "ENTRECHAT",     label: "Entrechat" },
-  { value: "EVENT",         label: "Event" },
-  { value: "PRESS",         label: "Press" },
-  { value: "SUCCESS_STORY", label: "Success Story" },
-  { value: "RESOURCE",      label: "Resource" },
+  { value: "BLOG",      label: "Blog"      },
+  { value: "NEWS",      label: "News"      },
+  { value: "ENTRECHAT", label: "Entrechat" },
+  { value: "EVENT",     label: "Event"     },
+  { value: "PRESS",     label: "Press"     },
 ] as const;
 
 export const STATUSES = [
@@ -166,23 +167,17 @@ export default function ContentForm({
           <div>
             <Label htmlFor="content" className="mb-1.5 block">
               Content <span className="text-red-500">*</span>
-              <span className="text-xs text-muted-foreground ml-2">(HTML or plain text)</span>
             </Label>
-            <Textarea id="content" rows={20}
-              placeholder="Write your full article content here…"
+            <RichTextEditor
               value={values.content}
-              onChange={(e) => set("content", e.target.value)}
-              onBlur={() => touch("content")}
-              className={cn(
-                "font-mono text-sm leading-relaxed",
-                fieldError("content") && "border-red-400 focus-visible:ring-red-400"
-              )} />
+              onChange={(html) => { set("content", html); touch("content"); }}
+              placeholder="Write your full article content here…"
+              minHeight={420}
+              error={!!fieldError("content")}
+            />
             {fieldError("content") && (
               <p className="text-xs text-red-600 mt-1">{fieldError("content")}</p>
             )}
-            <p className="text-xs text-muted-foreground mt-1">
-              {values.content.replace(/<[^>]*>/g, " ").split(/\s+/).filter(Boolean).length} words
-            </p>
           </div>
         </div>
 
@@ -281,20 +276,12 @@ export default function ContentForm({
               <CardTitle className="text-sm font-semibold">Media & Links</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label className="text-xs text-muted-foreground mb-1.5 block">Featured Image URL</Label>
-                <Input placeholder="https://res.cloudinary.com/…"
-                  value={values.featuredImage}
-                  onChange={(e) => set("featuredImage", e.target.value)} />
-                {values.featuredImage && (
-                  <div className="mt-2 rounded-lg overflow-hidden border border-border h-32 relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={values.featuredImage} alt="Preview"
-                      className="w-full h-full object-cover"
-                      onError={(e) => (e.currentTarget.style.display = "none")} />
-                  </div>
-                )}
-              </div>
+              <ImageUploader
+                label="Featured Image"
+                value={values.featuredImage}
+                onChange={(url) => set("featuredImage", url)}
+                folder="admin-content"
+              />
               <div>
                 <Label className="text-xs text-muted-foreground mb-1.5 block">
                   External URL
