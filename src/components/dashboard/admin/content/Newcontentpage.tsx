@@ -14,26 +14,29 @@ export default function NewContentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
 
-  const handleSubmit = async (values: ContentFormValues) => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/content", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title:        values.title.trim(),
-          content:      values.content,
-          summary:      values.summary.trim()   || null,
-          contentType:  values.contentType,
-          categoryId:   values.categoryId       || null,
-          authorName:   values.authorName.trim()|| null,
-          featuredImage:values.featuredImage.trim() || null,
-          externalUrl:  values.externalUrl.trim()   || null,
-          readingTime:  values.readingTime ? Number(values.readingTime) : null,
-          status:       values.status,
-        }),
-      });
+const handleSubmit = async (values: ContentFormValues) => {
+  setSubmitting(true);
+  setError(null);
+  try {
+    const res = await fetch("/api/admin/content", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title:        values.title.trim(),
+        content:      values.content,
+        summary:      values.summary.trim()   || null,
+        contentType:  values.contentType,
+        categoryId:   values.categoryId       || null,
+        authorName:   values.authorName.trim()|| null,
+        featuredImage:values.featuredImage.trim() || null,
+        externalUrl:  values.externalUrl.trim()   || null,
+        readingTime:  values.readingTime ? Number(values.readingTime) : null,
+        status:       values.status,
+        tags:         values.tags, // Add this
+      }),
+    });
+
+    // ... rest of the cod
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to create content");

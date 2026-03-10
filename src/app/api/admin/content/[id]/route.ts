@@ -3,7 +3,7 @@
 
 import { db } from "@/db";
 import { CategoriesTable, ContentTable, ContentTagsTable, TagsTable, UsersTable } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 
@@ -71,40 +71,101 @@ export async function PATCH(req: NextRequest,  context: { params: Promise<{ id: 
     const {
       title, content, summary, categoryId, authorName,
       featuredImage, externalUrl, status, publishedAt, readingTime,
+      tags, // Add tags
     } = body;
 
-    const updates: Partial<typeof ContentTable.$inferInsert> = {
-      updatedAt: new Date(),
-    };
+    // Use transaction for updates
+    const result = await db.transaction(async (tx) => {
+      // Update content
+      const updates: Partial<typeof ContentTable.$inferInsert> = {
+        updatedAt: new Date(),
+      };
 
-    if (title !== undefined) updates.title = title.trim();
-    if (content !== undefined) updates.content = content;
-    if (summary !== undefined) updates.summary = summary?.trim() ?? null;
-    if (categoryId !== undefined) updates.categoryId = categoryId;
-    if (authorName !== undefined) updates.authorName = authorName?.trim() ?? null;
-    if (featuredImage !== undefined) updates.featuredImage = featuredImage;
-    if (externalUrl !== undefined) updates.externalUrl = externalUrl;
-    if (readingTime !== undefined) updates.readingTime = readingTime;
-    if (status !== undefined) {
-      updates.status = status;
-      // ✅ Auto-set publishedAt when status flips to PUBLISHED
-      if (status === "PUBLISHED" && !publishedAt) {
-        updates.publishedAt = new Date();
+      if (title !== undefined) updates.title = title.trim();
+      if (content !== undefined) updates.content = content;
+      if (summary !== undefined) updates.summary = summary?.trim() ?? null;
+      if (categoryId !== undefined) updates.categoryId = categoryId;
+      if (authorName !== undefined) updates.authorName = authorName?.trim() ?? null;
+      if (featuredImage !== undefined) updates.featuredImage = featuredImage;
+      if (externalUrl !== undefined) updates.externalUrl = externalUrl;
+      if (readingTime !== undefined) updates.readingTime = readingTime;
+      if (status !== undefined) {
+        updates.status = status;
+        if (status === "PUBLISHED" && !publishedAt) {
+          updates.publishedAt = new Date();
+        }
       }
-    }
-    if (publishedAt !== undefined) updates.publishedAt = new Date(publishedAt);
+      if (publishedAt !== undefined) updates.publishedAt = new Date(publishedAt);
 
-    const [updated] = await db
-      .update(ContentTable)
-      .set(updates)
-      .where(eq(ContentTable.id, id))
-      .returning();
+      const [updated] = await tx
+        .update(ContentTable)
+        .set(updates)
+        .where(eq(ContentTable.id, id))
+        .returning();
 
-    if (!updated) {
-      return NextResponse.json({ success: false, error: "Content not found" }, { status: 404 });
-    }
+      if (!updated) {
+        throw new Error("Content not found");
+      }
 
-    return NextResponse.json({ success: true, data: updated });
+      // Update tags if provided
+      if (tags !== undefined) {
+        // Get current tags
+        const currentTags = await tx
+          .select({ tagId: ContentTagsTable.tagId })
+          .from(ContentTagsTable)
+          .where(eq(ContentTagsTable.contentId, id));
+
+        const currentTagIds = currentTags.map(t => t.tagId);
+
+        // Tags to add (in new but not in current)
+        const tagsToAdd = tags.filter((tagId: string) => !currentTagIds.includes(tagId));
+
+        // Tags to remove (in current but not in new)
+        const tagsToRemove = currentTagIds.filter((tagId: string) => !tags.includes(tagId));
+
+        // Add new tags
+        if (tagsToAdd.length > 0) {
+          await tx.insert(ContentTagsTable).values(
+            tagsToAdd.map((tagId: string) => ({
+              contentId: id,
+              tagId: tagId,
+            }))
+          );
+
+          // Increment usage count
+          for (const tagId of tagsToAdd) {
+            await tx
+              .update(TagsTable)
+              .set({ usageCount: sql`${TagsTable.usageCount} + 1` })
+              .where(eq(TagsTable.id, tagId));
+          }
+        }
+
+        // Remove old tags
+        if (tagsToRemove.length > 0) {
+          await tx
+            .delete(ContentTagsTable)
+            .where(
+              and(
+                eq(ContentTagsTable.contentId, id),
+                inArray(ContentTagsTable.tagId, tagsToRemove)
+              )
+            );
+
+          // Decrement usage count
+          for (const tagId of tagsToRemove) {
+            await tx
+              .update(TagsTable)
+              .set({ usageCount: sql`${TagsTable.usageCount} - 1` })
+              .where(eq(TagsTable.id, tagId));
+          }
+        }
+      }
+
+      return updated;
+    });
+
+    return NextResponse.json({ success: true, data: result });
   } catch (err) {
     console.error("[PATCH /admin/content/:id]", err);
     return NextResponse.json({ success: false, error: "Failed to update content" }, { status: 500 });

@@ -2,8 +2,8 @@
 // SUPER_ADMIN + ADMIN: list and create content
 /*eslint-disable  @typescript-eslint/no-explicit-any*/
 import { db } from "@/db";
-import { CategoriesTable, ContentTable, UsersTable } from "@/db/schema";
-import { and, count, desc, eq } from "drizzle-orm";
+import { CategoriesTable, ContentTable, ContentTagsTable, TagsTable, UsersTable } from "@/db/schema";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 function toSlug(text: string): string {
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     const {
       title, content, contentType, summary, categoryId,
       authorName, featuredImage, externalUrl, status,
-      publishedAt, readingTime, createdBy,
+      publishedAt, readingTime, createdBy, tags = [], // Add tags
     } = body;
 
     if (!title || !content || !contentType) {
@@ -102,26 +102,50 @@ export async function POST(req: NextRequest) {
 
     const slug = toSlug(title);
 
-    const [newContent] = await db
-      .insert(ContentTable)
-      .values({
-        title: title.trim(),
-        slug,
-        content,
-        contentType,
-        summary: summary?.trim() ?? null,
-        categoryId: categoryId ?? null,
-        createdBy: createdBy ?? null,
-        authorName: authorName?.trim() ?? null,
-        featuredImage: featuredImage ?? null,
-        externalUrl: externalUrl ?? null,
-        readingTime: readingTime ?? null,
-        status: status ?? "DRAFT",
-        publishedAt: publishedAt ? new Date(publishedAt) : null,
-      })
-      .returning();
+    // Use transaction to ensure both content and tags are created
+    const result = await db.transaction(async (tx) => {
+      // Insert content
+      const [newContent] = await tx
+        .insert(ContentTable)
+        .values({
+          title: title.trim(),
+          slug,
+          content,
+          contentType,
+          summary: summary?.trim() ?? null,
+          categoryId: categoryId ?? null,
+          createdBy: createdBy ?? null,
+          authorName: authorName?.trim() ?? null,
+          featuredImage: featuredImage ?? null,
+          externalUrl: externalUrl ?? null,
+          readingTime: readingTime ?? null,
+          status: status ?? "DRAFT",
+          publishedAt: publishedAt ? new Date(publishedAt) : null,
+        })
+        .returning();
 
-    return NextResponse.json({ success: true, data: newContent }, { status: 201 });
+      // Insert tags if any
+      if (tags.length > 0) {
+        await tx.insert(ContentTagsTable).values(
+          tags.map((tagId: string) => ({
+            contentId: newContent.id,
+            tagId: tagId,
+          }))
+        );
+
+        // Increment usage count for each tag
+        for (const tagId of tags) {
+          await tx
+            .update(TagsTable)
+            .set({ usageCount: sql`${TagsTable.usageCount} + 1` })
+            .where(eq(TagsTable.id, tagId));
+        }
+      }
+
+      return newContent;
+    });
+
+    return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (err: any) {
     if (err?.code === "23505") {
       return NextResponse.json(

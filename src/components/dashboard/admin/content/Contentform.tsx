@@ -2,6 +2,7 @@
 // Shared form used by both New and Edit pages.
 // Handles: title, content (textarea), summary, contentType, categoryId,
 //          authorName, featuredImage URL, externalUrl, readingTime, status.
+/*eslint-disable  @typescript-eslint/no-explicit-any*/
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import ImageUploader from "./ImageUploader";
 import RichTextEditor from "./RichTextEditor";
+import { TagInput } from "./TagInput";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -45,6 +47,8 @@ export const STATUSES = [
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
+// ─── Types ─────────────────────────────────────────────────────────────────────
+
 export type ContentFormValues = {
   title:        string;
   content:      string;
@@ -56,8 +60,8 @@ export type ContentFormValues = {
   externalUrl:  string;
   readingTime:  string;  // stored as string in form, cast to number on submit
   status:       string;
+  tags:         string[]; // Array of tag IDs
 };
-
 type Category = { id: string; name: string; slug: string; contentType: string };
 
 interface ContentFormProps {
@@ -72,6 +76,7 @@ const EMPTY: ContentFormValues = {
   title: "", content: "", summary: "", contentType: "BLOG",
   categoryId: "", authorName: "", featuredImage: "",
   externalUrl: "", readingTime: "", status: "DRAFT",
+  tags: [], // Add this
 };
 
 // ─── Form component ─────────────────────────────────────────────────────────────
@@ -251,6 +256,19 @@ export default function ContentForm({
                   </p>
                 )}
               </div>
+
+              {/* Inside the Publish Settings Card, after Category */}
+<div>
+  <Label className="text-xs text-muted-foreground mb-1.5 block">Tags</Label>
+  <TagInput
+    value={values.tags}
+    onChange={(tagIds) => set("tags", tagIds as any)} // Type assertion needed
+    disabled={submitting}
+  />
+  <p className="text-[10px] text-muted-foreground mt-1">
+    Add tags to help organize and search content
+  </p>
+</div>
             </CardContent>
           </Card>
 

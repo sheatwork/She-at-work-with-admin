@@ -63,12 +63,15 @@ const TYPE_STYLES: Record<string, string> = {
 };
 
 function StatusBadge({ status }: { status: string }) {
+  // Map DRAFT to show "Unpublished"
+  const displayStatus = status === "DRAFT" ? "Unpublished" : status.toLowerCase();
+  
   return (
     <span className={cn(
       "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border capitalize",
       STATUS_STYLES[status] ?? "bg-secondary text-muted-foreground border-border"
     )}>
-      {status.toLowerCase()}
+      {displayStatus}
     </span>
   );
 }
@@ -148,7 +151,16 @@ export default function ViewContentPage({ id }: ViewContentPageProps) {
         body: JSON.stringify({ status }),
       });
       if (!res.ok) throw new Error();
-      showToast(`Status changed to ${status.toLowerCase()}`);
+      
+      // Show appropriate success message
+      const statusMessages: Record<string, string> = {
+        PUBLISHED: "Content published successfully",
+        DRAFT: "Content moved to Unpublished",
+        PENDING: "Content submitted for review",
+        REJECTED: "Content rejected",
+      };
+      showToast(statusMessages[status] || `Status changed to ${status.toLowerCase()}`);
+      
       fetchItem();
     } catch {
       showToast("Action failed");
@@ -196,7 +208,7 @@ export default function ViewContentPage({ id }: ViewContentPageProps) {
   // ── Public URL ─────────────────────────────────────────────────────────────
   const publicUrl = item.externalUrl
     ? item.externalUrl
-    : `/blogs/${item.slug}`;  // adjust prefix per contentType if needed
+    : `/${item.contentType.toLowerCase()}s/${item.slug}`;
 
   return (
     <div className="space-y-6">
@@ -244,7 +256,7 @@ export default function ViewContentPage({ id }: ViewContentPageProps) {
           {item.status === "PUBLISHED" && (
             <Button size="sm" variant="outline" className="gap-1.5"
               onClick={() => patchStatus("DRAFT")} disabled={processing}>
-              Unpublish
+              Move to Unpublished
             </Button>
           )}
           {item.status === "PENDING" && (
@@ -252,6 +264,13 @@ export default function ViewContentPage({ id }: ViewContentPageProps) {
               className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
               onClick={() => patchStatus("REJECTED")} disabled={processing}>
               <X className="h-3.5 w-3.5" /> Reject
+            </Button>
+          )}
+          {/* Show "Move to Unpublished" for any non-published, non-draft states */}
+          {item.status !== "PUBLISHED" && item.status !== "DRAFT" && item.status !== "PENDING" && (
+            <Button size="sm" variant="outline" className="gap-1.5"
+              onClick={() => patchStatus("DRAFT")} disabled={processing}>
+              Move to Unpublished
             </Button>
           )}
 
@@ -381,18 +400,28 @@ export default function ViewContentPage({ id }: ViewContentPageProps) {
                   <Edit className="h-4 w-4" /> Edit Content
                 </Button>
               </Link>
+              
               {item.status !== "PUBLISHED" && (
                 <Button size="sm" className="w-full gap-2 bg-green-600 hover:bg-green-700"
                   onClick={() => patchStatus("PUBLISHED")} disabled={processing}>
                   <Check className="h-4 w-4" /> Publish Now
                 </Button>
               )}
-              {item.status !== "DRAFT" && item.status !== "PENDING" && (
+              
+              {item.status === "PUBLISHED" && (
                 <Button size="sm" variant="outline" className="w-full gap-2"
                   onClick={() => patchStatus("DRAFT")} disabled={processing}>
-                  Move to Draft
+                  Move to Unpublished
                 </Button>
               )}
+              
+              {item.status === "PENDING" && (
+                <Button size="sm" variant="outline" className="w-full gap-2 text-red-600 hover:bg-red-50 border-red-200"
+                  onClick={() => patchStatus("REJECTED")} disabled={processing}>
+                  <X className="h-4 w-4" /> Reject
+                </Button>
+              )}
+              
               <Button size="sm" variant="outline"
                 className="w-full gap-2 text-red-600 hover:bg-red-50 border-red-200"
                 onClick={() => setDeleteOpen(true)} disabled={processing}>
@@ -412,7 +441,7 @@ export default function ViewContentPage({ id }: ViewContentPageProps) {
           </DialogHeader>
           <div className="p-3 rounded-lg bg-red-50 border border-red-200">
             <p className="font-medium text-sm text-red-900">{item.title}</p>
-            <p className="text-xs text-red-700 mt-0.5">{item.contentType} · {item.status}</p>
+            <p className="text-xs text-red-700 mt-0.5">{item.contentType} · {item.status === "DRAFT" ? "Unpublished" : item.status.toLowerCase()}</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
