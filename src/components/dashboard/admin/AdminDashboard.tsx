@@ -6,12 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AlertCircle,
   Archive,
-  BarChart3, BookOpen, CheckCircle, Clock,
+  BookOpen, CheckCircle, Clock,
   Eye,
   FileCheck,
   FolderTree, Mail, MessageSquare, PlusCircle, TrendingUp,
-  UserCheck,
-  Users,
   XCircle
 } from "lucide-react";
 import Link from "next/link";
@@ -25,7 +23,7 @@ type DashboardData = {
     content:  { published: number; pending: number; draft: number; rejected: number; total: number };
     stories:  { pending: number; approved: number; rejected: number; total: number };
     contacts: { total: number; unresolved: number };
-    users:    { total: number; users: number; admins: number; superAdmins: number };
+
   };
   recent: {
     content: {
@@ -43,6 +41,27 @@ type DashboardData = {
     }[];
   };
 };
+
+// ─── Status Configuration (Updated to match STATUSES) ───────────────────────────
+
+const STATUS_CONFIG = {
+  PUBLISHED: { label: "Published", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
+  PENDING: { label: "Pending", color: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
+  DRAFT: { label: "Unpublished", color: "bg-slate-50 text-slate-600 border-slate-200", dot: "bg-slate-400" },
+  REJECTED: { label: "Rejected", color: "bg-rose-50 text-rose-700 border-rose-200", dot: "bg-rose-500" },
+} as const;
+
+function StatusBadge({ status }: { status: string }) {
+  const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] || 
+    { label: status, color: "bg-slate-50 text-slate-600 border-slate-200", dot: "bg-slate-400" };
+  
+  return (
+    <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border ${config.color}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
+      {config.label}
+    </div>
+  );
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -64,26 +83,6 @@ function formatRelative(iso: string): string {
   if (hours < 24) return `${hours}h`;
   if (days < 7) return `${days}d`;
   return formatDate(iso);
-}
-
-const STATUS_CONFIG = {
-  PUBLISHED: { label: "Published", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
-  APPROVED: { label: "Approved", color: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
-  PENDING: { label: "Pending", color: "bg-amber-50 text-amber-700 border-amber-200", dot: "bg-amber-500" },
-  DRAFT: { label: "Draft", color: "bg-slate-50 text-slate-600 border-slate-200", dot: "bg-slate-400" },
-  REJECTED: { label: "Rejected", color: "bg-rose-50 text-rose-700 border-rose-200", dot: "bg-rose-500" },
-} as const;
-
-function StatusBadge({ status }: { status: string }) {
-  const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] || 
-    { label: status, color: "bg-slate-50 text-slate-600 border-slate-200", dot: "bg-slate-400" };
-  
-  return (
-    <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border ${config.color}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
-      {config.label}
-    </div>
-  );
 }
 
 // ─── Mini stat pill ────────────────────────────────────────────────────────────
@@ -302,14 +301,13 @@ export default function AdminDashboard() {
       <div className="flex flex-wrap items-center gap-2">
         <MiniStat label="Stories" value={stats.stories.total} icon={BookOpen} color="text-purple-500" />
         <MiniStat label="Contacts" value={stats.contacts.total} icon={Mail} color="text-teal-500" />
-        <MiniStat label="Users" value={stats.users.total} icon={Users} color="text-blue-500" />
-        <MiniStat label="Admins" value={stats.users.admins + stats.users.superAdmins} icon={UserCheck} color="text-slate-500" />
+       
       </div>
 
       {/* ─── Quick Actions Grid ────────────────────────────────────────────── */}
       <div>
         <h2 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Quick Actions</h2>
-        <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-2">
+        <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-6 gap-2">
           <QuickAction icon={PlusCircle} label="New" href="/dashboard/admin/content/new" />
           <QuickAction 
             icon={FileCheck} 
@@ -333,9 +331,9 @@ export default function AdminDashboard() {
             badge={stats.contacts.unresolved}
             isActive={stats.contacts.unresolved > 0}
           />
-          <QuickAction icon={BarChart3} label="Analytics" href="/dashboard/superadmin/analytics" />
+          {/* <QuickAction icon={BarChart3} label="Analytics" href="/dashboard/superadmin/analytics" /> */}
           <QuickAction icon={Eye} label="Preview" href="/" />
-          <QuickAction icon={Users} label="Users" href="/dashboard/admin/users" />
+          {/* <QuickAction icon={Users} label="Users" href="/dashboard/admin/users" /> */}
         </div>
       </div>
 
@@ -355,7 +353,7 @@ export default function AdminDashboard() {
                 <div className="bg-amber-500 h-full" style={{ width: `${(stats.content.pending / stats.content.total) * 100}%` }} />
               )}
               {stats.content.draft > 0 && (
-                <div className="bg-blue-400 h-full" style={{ width: `${(stats.content.draft / stats.content.total) * 100}%` }} />
+                <div className="bg-slate-400 h-full" style={{ width: `${(stats.content.draft / stats.content.total) * 100}%` }} />
               )}
               {stats.content.rejected > 0 && (
                 <div className="bg-rose-400 h-full" style={{ width: `${(stats.content.rejected / stats.content.total) * 100}%` }} />
@@ -376,8 +374,8 @@ export default function AdminDashboard() {
               )}
               {stats.content.draft > 0 && (
                 <span className="flex items-center gap-1 text-[9px]">
-                  <span className="w-2 h-2 rounded-full bg-blue-400" />
-                  Draft {stats.content.draft}
+                  <span className="w-2 h-2 rounded-full bg-slate-400" />
+                  Unpublished {stats.content.draft}
                 </span>
               )}
               {stats.content.rejected > 0 && (
