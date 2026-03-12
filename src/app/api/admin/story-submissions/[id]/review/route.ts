@@ -1,7 +1,6 @@
 // app/api/admin/story-submissions/[id]/review/route.ts
 // SUPER_ADMIN + ADMIN: approve / reject a submission (status-only update)
 // For full publish flow (creates a content row), use the /publish sub-route instead.
-/*eslint-disable @typescript-eslint/no-explicit-any */
 
 import { db } from "@/db";
 import { StorySubmissionsTable } from "@/db/schema";

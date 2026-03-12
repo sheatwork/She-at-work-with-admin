@@ -1,5 +1,4 @@
 // src/components/dashboard/admin/content/ContentForm.tsx
-/*eslint-disable  @typescript-eslint/no-explicit-any*/
 "use client";
 
 import { Button } from "@/components/ui/button";

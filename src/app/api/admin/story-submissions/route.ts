@@ -1,7 +1,6 @@
 // app/api/admin/story-submissions/route.ts
 // ADMIN: paginated list of story submissions
 // Query: ?status=PENDING&page=1&limit=20&search=
-/*eslint-disable @typescript-eslint/no-explicit-any */
 
 import { db } from "@/db";
 import { StorySubmissionsTable, UsersTable } from "@/db/schema";

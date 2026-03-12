@@ -1,6 +1,5 @@
 // app/api/admin/story-submissions/[id]/route.ts
 // ADMIN: GET single submission + PATCH to review/publish/reject
-/*eslint-disable @typescript-eslint/no-explicit-any */
 
 import { db } from "@/db";
 import { CategoriesTable, ContentTable, StorySubmissionsTable, UsersTable } from "@/db/schema";

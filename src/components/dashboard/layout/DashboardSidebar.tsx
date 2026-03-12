@@ -1,11 +1,10 @@
-
 // src/components/dashboard/layout/DashboardSidebar.tsx
 "use client";
 
 import { cn } from "@/lib/utils";
 import {
-  BarChart3, BookOpen, ChevronRight,
-  FolderTree, Home, Mail, Shield, TrendingUp, Users
+  BookOpen, ChevronRight,
+  FolderTree, Home, Mail, Shield, TrendingUp
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -30,40 +29,40 @@ const NAV_ITEMS: NavItem[] = [
     group: "common",
   },
 
-  // ── Admin ─────────────────────────────────────────────────────────────────
+  // ── Admin only (SUPER_ADMIN manages via superadmin routes instead) ────────
   {
     href:  "/dashboard/admin/content",
     label: "Content",
     icon:  <BookOpen className="h-5 w-5" />,
-    roles: ["ADMIN", "SUPER_ADMIN"],
+    roles: ["ADMIN"],
     group: "admin",
   },
   // {
   //   href:  "/dashboard/admin/resources",
   //   label: "Resources",
   //   icon:  <FileText className="h-5 w-5" />,
-  //   roles: ["ADMIN", "SUPER_ADMIN"],
+  //   roles: ["ADMIN"],
   //   group: "admin",
   // },
   {
     href:  "/dashboard/admin/categories",
     label: "Categories",
     icon:  <FolderTree className="h-5 w-5" />,
-    roles: ["ADMIN", "SUPER_ADMIN"],
+    roles: ["ADMIN"],
     group: "admin",
   },
   {
     href:  "/dashboard/admin/story-submissions",
     label: "Story Submissions",
     icon:  <TrendingUp className="h-5 w-5" />,
-    roles: ["ADMIN", "SUPER_ADMIN"],
+    roles: ["ADMIN"],
     group: "admin",
   },
   {
     href:  "/dashboard/admin/contact-submissions",
     label: "Contact Messages",
     icon:  <Mail className="h-5 w-5" />,
-    roles: ["ADMIN", "SUPER_ADMIN"],
+    roles: ["ADMIN"],
     group: "admin",
   },
 
@@ -75,20 +74,20 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["SUPER_ADMIN"],
     group: "superadmin",
   },
-  {
-    href:  "/dashboard/superadmin/users",
-    label: "User Management",
-    icon:  <Users className="h-5 w-5" />,
-    roles: ["SUPER_ADMIN"],
-    group: "superadmin",
-  },
-  {
-    href:  "/dashboard/superadmin/analytics",
-    label: "Analytics",
-    icon:  <BarChart3 className="h-5 w-5" />,
-    roles: ["SUPER_ADMIN"],
-    group: "superadmin",
-  },
+  // {
+  //   href:  "/dashboard/superadmin/users",
+  //   label: "User Management",
+  //   icon:  <Users className="h-5 w-5" />,
+  //   roles: ["SUPER_ADMIN"],
+  //   group: "superadmin",
+  // },
+  // {
+  //   href:  "/dashboard/superadmin/analytics",
+  //   label: "Analytics",
+  //   icon:  <BarChart3 className="h-5 w-5" />,
+  //   roles: ["SUPER_ADMIN"],
+  //   group: "superadmin",
+  // },
 ];
 
 const GROUP_LABELS: Record<string, string> = {
