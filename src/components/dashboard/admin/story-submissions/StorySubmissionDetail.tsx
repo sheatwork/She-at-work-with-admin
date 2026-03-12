@@ -14,14 +14,12 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import {
   ArrowLeft, Building2, Calendar, Check, ExternalLink,
-  FileText,
-  Mail, Phone, RefreshCw, Send,
-  Tag,
-  User, X, XCircle,
+  FileText, Mail, Phone, RefreshCw, Send,
+  Tag, User, X, XCircle,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import PublishDialog, { PublishPayload } from "./PublishDialog";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -48,7 +46,7 @@ type SubmissionDetail = {
   } | null;
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Constants (outside component — never recreated on render) ─────────────────
 
 const STATUS_STYLES: Record<string, string> = {
   PUBLISHED: "bg-green-100 text-green-800 border-green-200",
@@ -87,11 +85,11 @@ interface Props { id: string }
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function StorySubmissionDetail({ id }: Props) {
-  const [item,          setItem]          = useState<SubmissionDetail | null>(null);
-  const [fetching,      setFetching]      = useState(true);
-  const [fetchError,    setFetchError]    = useState<string | null>(null);
-  const [processing,    setProcessing]    = useState(false);
-  const [toast,         setToast]         = useState<{ msg: string; ok: boolean } | null>(null);
+  const [item,        setItem]        = useState<SubmissionDetail | null>(null);
+  const [fetching,    setFetching]    = useState(true);
+  const [fetchError,  setFetchError]  = useState<string | null>(null);
+  const [processing,  setProcessing]  = useState(false);
+  const [toast,       setToast]       = useState<{ msg: string; ok: boolean } | null>(null);
 
   // Reject dialog
   const [rejectOpen,   setRejectOpen]   = useState(false);
@@ -103,14 +101,23 @@ export default function StorySubmissionDetail({ id }: Props) {
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishing,   setPublishing]   = useState(false);
 
-  const showToast = (msg: string, ok = true) => {
+  // FIX: track toast timeout so overlapping toasts are properly cleared
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // FIX: useCallback + clear previous timeout before setting new one
+  const showToast = useCallback((msg: string, ok = true) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 4000);
-  };
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 4000);
+  }, []);
 
   // ── Fetch detail ──────────────────────────────────────────────────────────
-
-  const fetchDetail = async () => {
+  // FIX: wrapped in useCallback so it can be safely referenced in useEffect
+  // and called from action handlers without triggering extra renders
+  const fetchDetail = useCallback(async () => {
     setFetching(true);
     setFetchError(null);
     try {
@@ -123,9 +130,9 @@ export default function StorySubmissionDetail({ id }: Props) {
     } finally {
       setFetching(false);
     }
-  };
+  }, [id]);
 
-  useEffect(() => { fetchDetail(); }, [id]);
+  useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -142,8 +149,10 @@ export default function StorySubmissionDetail({ id }: Props) {
           reviewNotes: rejectReason,
         }),
       });
+      // FIX: res.json() and error check inside try so API errors surface to user
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed");
+      if (!res.ok) throw new Error(data.error ?? "Failed to reject");
+
       setRejectOpen(false);
       setRejectReason("");
       showToast("Submission rejected");
@@ -164,21 +173,22 @@ export default function StorySubmissionDetail({ id }: Props) {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // We don't have a session hook here — pass a placeholder;
-          // in production wire in useSession().data?.user?.id
-          reviewedBy:   "admin",
-          reviewNotes:  payload.reviewNotes || null,
-          title:        payload.title,
-          authorName:   payload.authorName  || null,
-          summary:      payload.summary     || null,
-          contentType:  payload.contentType,
-          categoryId:   payload.categoryId  || null,
-          featuredImage:payload.featuredImage || null,
-          readingTime:  payload.readingTime ? Number(payload.readingTime) : null,
+          // TODO: wire in useSession().data?.user?.id for production
+          reviewedBy:    "admin",
+          reviewNotes:   payload.reviewNotes   || null,
+          title:         payload.title,
+          authorName:    payload.authorName    || null,
+          summary:       payload.summary       || null,
+          contentType:   payload.contentType,
+          categoryId:    payload.categoryId    || null,
+          featuredImage: payload.featuredImage || null,
+          readingTime:   payload.readingTime ? Number(payload.readingTime) : null,
         }),
       });
+      // FIX: res.json() and error check inside try so API errors surface to user
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to publish");
+
       setPublishOpen(false);
       showToast("Story published successfully as content!");
       fetchDetail();
@@ -244,14 +254,20 @@ export default function StorySubmissionDetail({ id }: Props) {
         <div className="flex items-center gap-2 flex-wrap">
           {isPending && (
             <>
-              <Button variant="outline" size="sm"
+              <Button
+                variant="outline" size="sm"
                 className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
-                onClick={() => setRejectOpen(true)} disabled={processing}>
+                onClick={() => setRejectOpen(true)}
+                disabled={processing}
+              >
                 <X className="h-3.5 w-3.5" /> Reject
               </Button>
-              <Button size="sm"
+              <Button
+                size="sm"
                 className="gap-1.5 bg-green-600 hover:bg-green-700"
-                onClick={() => setPublishOpen(true)} disabled={processing}>
+                onClick={() => setPublishOpen(true)}
+                disabled={processing}
+              >
                 <Send className="h-3.5 w-3.5" /> Publish as Content
               </Button>
             </>
@@ -307,7 +323,6 @@ export default function StorySubmissionDetail({ id }: Props) {
         {/* ── Story content ──────────────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-5">
 
-          {/* Title + status */}
           <div>
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <StatusBadge status={item.status} />
@@ -323,8 +338,10 @@ export default function StorySubmissionDetail({ id }: Props) {
             )}>
               {images.slice(0, 4).map((src, i) => (
                 <div key={i} className="relative rounded-xl overflow-hidden border border-border h-48">
-                  <Image src={src} alt={`Story image ${i+1}`} fill
-                    className="object-cover" sizes="(max-width:1024px) 50vw, 33vw" />
+                  <Image
+                    src={src} alt={`Story image ${i + 1}`} fill
+                    className="object-cover" sizes="(max-width:1024px) 50vw, 33vw"
+                  />
                 </div>
               ))}
             </div>
@@ -354,15 +371,17 @@ export default function StorySubmissionDetail({ id }: Props) {
               <CardTitle className="text-sm font-semibold">Submitter</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <MetaRow icon={User}     label="Name"  value={item.name} />
-              <MetaRow icon={Mail}     label="Email" value={
-                <a href={`mailto:${item.email}`}
-                  className="text-primary hover:underline">{item.email}</a>
+              <MetaRow icon={User} label="Name" value={item.name} />
+              <MetaRow icon={Mail} label="Email" value={
+                <a href={`mailto:${item.email}`} className="text-primary hover:underline">
+                  {item.email}
+                </a>
               } />
               {item.phone && (
                 <MetaRow icon={Phone} label="Phone" value={
-                  <a href={`tel:${item.phone}`}
-                    className="text-primary hover:underline">{item.phone}</a>
+                  <a href={`tel:${item.phone}`} className="text-primary hover:underline">
+                    {item.phone}
+                  </a>
                 } />
               )}
             </CardContent>
@@ -455,13 +474,19 @@ export default function StorySubmissionDetail({ id }: Props) {
                 <CardTitle className="text-sm font-semibold">Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button className="w-full gap-2 bg-green-600 hover:bg-green-700"
-                  onClick={() => setPublishOpen(true)} disabled={processing}>
+                <Button
+                  className="w-full gap-2 bg-green-600 hover:bg-green-700"
+                  onClick={() => setPublishOpen(true)}
+                  disabled={processing}
+                >
                   <Send className="h-4 w-4" /> Publish as Content
                 </Button>
-                <Button variant="outline"
+                <Button
+                  variant="outline"
                   className="w-full gap-2 text-red-600 border-red-200 hover:bg-red-50"
-                  onClick={() => setRejectOpen(true)} disabled={processing}>
+                  onClick={() => setRejectOpen(true)}
+                  disabled={processing}
+                >
                   <X className="h-4 w-4" /> Reject Submission
                 </Button>
               </CardContent>
@@ -491,18 +516,23 @@ export default function StorySubmissionDetail({ id }: Props) {
 
           <div>
             <Label htmlFor="rejectReason" className="mb-1.5 block">Reason for rejection</Label>
-            <Textarea id="rejectReason" rows={4}
+            <Textarea
+              id="rejectReason" rows={4}
               placeholder="Give specific feedback to help the submitter…"
               value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)} />
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => { setRejectOpen(false); setRejectReason(""); }}>
               Cancel
             </Button>
-            <Button variant="destructive" onClick={handleReject}
-              disabled={!rejectReason.trim() || processing}>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={!rejectReason.trim() || processing}
+            >
               {processing
                 ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Rejecting…</>
                 : <><X className="h-4 w-4 mr-2" />Reject</>}

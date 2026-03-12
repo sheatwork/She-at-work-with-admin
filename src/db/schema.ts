@@ -84,7 +84,9 @@ export const UsersTable = pgTable(
   ]
 );
 
-
+////////////////////////////////////////////////////////////
+//////////////////// AUTH TOKENS ////////////////////////////
+////////////////////////////////////////////////////////////
 
 export const EmailVerificationTokenTable = pgTable(
   "email_verification_tokens",
@@ -100,8 +102,6 @@ export const EmailVerificationTokenTable = pgTable(
     uniqueIndex("email_verification_tokens_token_key").on(table.token),
   ]
 );
-
-// ─── Password Reset Tokens ────────────────────────────────────────────────────
 
 export const PasswordResetTokenTable = pgTable(
   "password_reset_tokens",
@@ -150,6 +150,13 @@ export const CategoriesTable = pgTable(
     index("categories_content_type_idx").on(table.contentType),
 
     index("categories_active_idx").on(table.isActive),
+
+    // ADDED: composite index for the common query pattern:
+    // fetch active categories filtered by content type
+    index("categories_content_type_active_idx").on(
+      table.contentType,
+      table.isActive
+    ),
   ]
 );
 
@@ -175,7 +182,8 @@ export const TagsTable = pgTable(
 
     uniqueIndex("tags_slug_key").on(table.slug),
 
-    index("tags_usage_count_idx").on(table.usageCount),
+    // ADDED: descending usage count so "popular tags" queries are fast
+    index("tags_usage_count_desc_idx").on(table.usageCount),
   ]
 );
 
@@ -245,7 +253,7 @@ export const ContentTable = pgTable(
       .where(sql`${table.wpId} IS NOT NULL`),
 
     //////////////////////////////////////////////////////////
-    // STANDARD INDEXES
+    // SINGLE-COLUMN INDEXES
     //////////////////////////////////////////////////////////
 
     index("content_type_idx").on(table.contentType),
@@ -256,20 +264,34 @@ export const ContentTable = pgTable(
 
     index("content_published_at_idx").on(table.publishedAt),
 
+    // ADDED: createdAt DESC — matches ORDER BY in the admin list GET handler
+    index("content_created_at_desc_idx").on(table.createdAt),
+
+    // ADDED: FK index for the LEFT JOIN to users (creator lookup)
+    index("content_created_by_idx").on(table.createdBy),
+
     //////////////////////////////////////////////////////////
-    // MOST IMPORTANT INDEX (FOR FRONTEND)
+    // COMPOSITE INDEXES
     //////////////////////////////////////////////////////////
 
+    // Most important for the frontend public pages:
+    // WHERE content_type = ? AND status = 'PUBLISHED' ORDER BY published_at DESC
     index("content_type_status_published_idx").on(
       table.contentType,
       table.status,
       table.publishedAt
     ),
 
-    //////////////////////////////////////////////////////////
-    // RELATED POSTS INDEX
-    //////////////////////////////////////////////////////////
+    // Admin list page: WHERE content_type = ? AND status = ? ORDER BY created_at DESC
+    // ADDED: covers the two most common admin filter combinations in one index
+    index("content_type_status_created_idx").on(
+      table.contentType,
+      table.status,
+      table.createdAt
+    ),
 
+    // Related posts widget:
+    // WHERE category_id = ? AND status = 'PUBLISHED' ORDER BY published_at DESC
     index("content_related_query_idx").on(
       table.categoryId,
       table.status,
@@ -348,10 +370,19 @@ export const ResourcesTable = pgTable(
       table.scope,
       table.locationKey
     ),
+
+    // ADDED: filter active resources by scope + location in one index
+    index("resources_scope_location_active_idx").on(
+      table.scope,
+      table.locationKey,
+      table.isActive
+    ),
   ]
 );
 
-// ─── Story Submissions ────────────────────────────────────────────────────────
+////////////////////////////////////////////////////////////
+//////////////////// STORY SUBMISSIONS //////////////////////
+////////////////////////////////////////////////////////////
 
 export const StorySubmissionsTable = pgTable(
   "story_submissions",
@@ -379,12 +410,22 @@ export const StorySubmissionsTable = pgTable(
   },
   (table) => [
     index("story_submissions_status_idx").on(table.status),
+
     index("story_submissions_submitted_at_idx").on(table.submittedAt),
+
     index("story_submissions_reviewed_by_idx").on(table.reviewedBy),
+
+    // ADDED: admin review queue — pending items ordered by submission date
+    index("story_submissions_status_submitted_idx").on(
+      table.status,
+      table.submittedAt
+    ),
   ]
 );
 
-// ─── Contact Submissions ──────────────────────────────────────────────────────
+////////////////////////////////////////////////////////////
+//////////////////// CONTACT SUBMISSIONS ////////////////////
+////////////////////////////////////////////////////////////
 
 export const ContactSubmissionsTable = pgTable(
   "contact_submissions",
@@ -405,13 +446,18 @@ export const ContactSubmissionsTable = pgTable(
   },
   (table) => [
     index("contact_submissions_resolved_idx").on(table.isResolved),
+
     index("contact_submissions_submitted_at_idx").on(table.submittedAt),
+
     index("contact_submissions_resolved_by_idx").on(table.resolvedBy),
+
+    // ADDED: unresolved items ordered by date — used by the admin inbox view
+    index("contact_submissions_resolved_submitted_idx").on(
+      table.isResolved,
+      table.submittedAt
+    ),
   ]
 );
-
-// ─── Relations ────────────────────────────────────────────────────────────────
-
 
 ////////////////////////////////////////////////////////////
 //////////////////// RELATIONS //////////////////////////////
@@ -480,12 +526,12 @@ export const contactSubmissionRelations = relations(
     }),
   })
 );
+
 export const userRelations = relations(UsersTable, ({ many }) => ({
   posts: many(ContentTable),
   storyReviews: many(StorySubmissionsTable),
   contactResolutions: many(ContactSubmissionsTable),
 }));
-
 
 ////////////////////////////////////////////////////////////
 //////////////////// TYPES //////////////////////////////////

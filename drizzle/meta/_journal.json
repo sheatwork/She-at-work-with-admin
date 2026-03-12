@@ -43,6 +43,13 @@
       "when": 1773000512920,
       "tag": "0006_tough_xavin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1773307639053,
+      "tag": "0007_complete_taskmaster",
+      "breakpoints": true
     }
   ]
 }

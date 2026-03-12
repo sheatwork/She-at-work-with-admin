@@ -53,16 +53,7 @@ type ContentDetail = ContentItem & {
 
 type Pagination = { page: number; limit: number; total: number; totalPages: number };
 
-// ─── Status config ─────────────────────────────────────────────────────────────
-//
-//  DRAFT     = "Unpublished" — saved but not live (also used when admin unpublishes)
-//  PENDING   = awaiting admin review before going live
-//  PUBLISHED = live and visible to the public
-//  REJECTED  = admin declined; author should revise and resubmit
-//
-//  NOTE: There is no separate UNPUBLISHED enum value in the DB.
-//  Unpublishing = setting status back to DRAFT. This is the standard pattern
-//  and requires no migration.
+// ─── Constants (defined OUTSIDE component — never recreated on render) ─────────
 
 const STATUS_CONFIG: Record<string, { label: string; badge: string }> = {
   DRAFT:     { label: "Unpublished", badge: "bg-slate-100 text-slate-600 border-slate-200" },
@@ -79,7 +70,6 @@ const TYPE_STYLES: Record<string, string> = {
   PRESS:     "bg-cyan-100   text-cyan-800",
 };
 
-// SUCCESS_STORY and RESOURCE have their own dedicated CRUD pages
 const CONTENT_TYPES = [
   "BLOG","NEWS","ENTRECHAT","EVENT","PRESS",
 ] as const;
@@ -171,27 +161,38 @@ export default function ContentModeration() {
   // Toast
   const [toast, setToast] = useState<{ msg: string; type: "success"|"error" } | null>(null);
 
-  const debRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const debRef          = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef        = useRef<AbortController | null>(null);
+  // FIX: ref to track toast timeout so overlapping toasts are properly cleared
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = (msg: string, type: "success"|"error" = "success") => {
+  // FIX: wrapped in useCallback, clears previous timeout before setting new one
+  const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
-  };
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 3000);
+  }, []);
 
-  // Debounce search
+  // Debounce search — resets to page 1 on new search term
   useEffect(() => {
     if (debRef.current) clearTimeout(debRef.current);
     debRef.current = setTimeout(() => { setDebSearch(search); setPage(1); }, 300);
     return () => { if (debRef.current) clearTimeout(debRef.current); };
   }, [search]);
 
+  // FIX: reset page when filters change — kept separate so fetchContent
+  // dependency array stays stable and doesn't cause an extra call
   useEffect(() => { setPage(1); }, [statusFilter, typeFilter]);
 
   // ── Fetch list ──────────────────────────────────────────────────────────────
   const fetchContent = useCallback(async () => {
+    // Cancel any in-flight request before starting a new one
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
+
     setLoading(true);
     setError(false);
     try {
@@ -199,20 +200,27 @@ export default function ContentModeration() {
       if (statusFilter) sp.set("status",      statusFilter);
       if (typeFilter)   sp.set("contentType", typeFilter);
       if (debSearch)    sp.set("search",      debSearch);
+
       const res = await fetch(`/api/admin/content?${sp}`, { signal: abortRef.current.signal });
       if (!res.ok) throw new Error();
       const data = await res.json();
       setItems(data.data ?? []);
       setPagination(data.pagination ?? { page:1, limit:20, total:0, totalPages:0 });
     } catch (err: any) {
-      if (err.name === "AbortError") return;
+      if (err.name === "AbortError") return; // ignore intentional cancellations
       setError(true);
     } finally {
       setLoading(false);
     }
   }, [page, statusFilter, typeFilter, debSearch]);
 
-  useEffect(() => { fetchContent(); }, [fetchContent]);
+  // FIX: single useEffect — no duplicate call.
+  // Cleanup aborts the in-flight request when the component unmounts or
+  // before the next fetch fires.
+  useEffect(() => {
+    fetchContent();
+    return () => { abortRef.current?.abort(); };
+  }, [fetchContent]);
 
   // ── Open preview ────────────────────────────────────────────────────────────
   const openPreview = async (item: ContentItem) => {
@@ -315,300 +323,296 @@ export default function ContentModeration() {
           </Link>
         </div>
       </div>
-<div className="bg-white p-4 space-y-4 rounded-xl">
-      {/* ── Status legend ──────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-3 p-3 rounded-xl bg-muted/40 border border-border text-xs text-muted-foreground">
-        <span className="font-medium text-foreground mr-1">Status guide:</span>
-        {Object.entries(STATUS_CONFIG).map(([key, { label, badge }]) => (
-          <span key={key} className="flex items-center gap-1.5">
-            <span className={cn("inline-flex px-2 py-0.5 rounded-full border text-xs font-medium", badge)}>
-              {label}
+
+      <div className="bg-white p-4 space-y-4 rounded-xl">
+        {/* ── Status legend ──────────────────────────────────────────────── */}
+        <div className="flex flex-wrap gap-3 p-3 rounded-xl bg-muted/40 border border-border text-xs text-muted-foreground">
+          <span className="font-medium text-foreground mr-1">Status guide:</span>
+          {Object.entries(STATUS_CONFIG).map(([key, { label, badge }]) => (
+            <span key={key} className="flex items-center gap-1.5">
+              <span className={cn("inline-flex px-2 py-0.5 rounded-full border text-xs font-medium", badge)}>
+                {label}
+              </span>
+              <span className="hidden sm:inline">
+                {key === "DRAFT"     && "— saved, not live"}
+                {key === "PENDING"   && "— awaiting review"}
+                {key === "PUBLISHED" && "— live to public"}
+                {key === "REJECTED"  && "— declined, needs revision"}
+              </span>
             </span>
-            <span className="hidden sm:inline">
-              {key === "DRAFT"     && "— saved, not live"}
-              {key === "PENDING"   && "— awaiting review"}
-              {key === "PUBLISHED" && "— live to public"}
-              {key === "REJECTED"  && "— declined, needs revision"}
-            </span>
-          </span>
-        ))}
-      </div>
-
-      {/* ── Compact filter bar ─────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        {/* Search */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search title or author…" value={search}
-            onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
-          {search && (
-            <button onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2">
-              <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-            </button>
-          )}
+          ))}
         </div>
 
-        {/* Type filter */}
-        <Select value={typeFilter || "ALL"}
-          onValueChange={(v) => setTypeFilter(v === "ALL" ? "" : v)}>
-          <SelectTrigger className="h-9 w-[160px]">
-            <SelectValue placeholder="All types" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All Types</SelectItem>
-            {CONTENT_TYPES.map((t) => (
-              <SelectItem key={t} value={t} className="capitalize">
-                {t.toLowerCase().replace(/_/g, " ")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <span className="hidden sm:flex items-center text-xs text-muted-foreground whitespace-nowrap px-1">
-          {pagination.total} item{pagination.total !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* ── Status tabs ────────────────────────────────────────────────── */}
-      <div className="flex gap-1.5 flex-wrap border-b border-border pb-3">
-        {STATUS_TABS.map((t) => (
-          <button key={t.value}
-            onClick={() => { setStatusFilter(t.value); setPage(1); }}
-            className={cn(
-              "px-3 py-1 rounded-full text-xs font-medium border transition-all",
-              statusFilter === t.value
-                ? "bg-primary text-white border-primary"
-                : "bg-background border-border text-muted-foreground hover:bg-muted"
-            )}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Table ──────────────────────────────────────────────────────── */}
-      {loading ? (
-        <div className="flex items-center justify-center h-48">
-          <RefreshCw className="h-7 w-7 animate-spin text-muted-foreground" />
-        </div>
-      ) : error ? (
-        <div className="flex flex-col items-center justify-center h-48 gap-3">
-          <XCircle className="h-9 w-9 text-destructive" />
-          <p className="text-sm text-muted-foreground">Failed to load content</p>
-          <Button variant="outline" size="sm" onClick={fetchContent}>Try again</Button>
-        </div>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-48 gap-3">
-          <BookOpen className="h-9 w-9 text-muted-foreground" />
-          <p className="text-sm font-medium text-foreground">No content found</p>
-          <p className="text-xs text-muted-foreground">
-            {statusFilter === "PENDING"
-              ? "No pending content awaiting review"
-              : "Try a different filter or create new content"}
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/40 border-b">
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs">Content</th>
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs hidden md:table-cell">Type</th>
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs">Status</th>
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs hidden lg:table-cell">Author</th>
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs hidden sm:table-cell">Date</th>
-                <th className="text-right px-4 py-2.5 font-medium text-muted-foreground text-xs">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
-
-                  {/* Content */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      {/* Thumbnail */}
-                      {item.featuredImage ? (
-                        <div className="relative h-9 w-12 flex-shrink-0 rounded-md overflow-hidden bg-muted">
-                          <Image src={item.featuredImage} alt="" fill
-                            className="object-cover" sizes="48px" />
-                        </div>
-                      ) : (
-                        <div className="h-9 w-12 flex-shrink-0 rounded-md bg-muted/60 flex items-center justify-center">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="font-medium text-foreground text-sm line-clamp-1 leading-tight">
-                          {item.title}
-                        </p>
-                        {item.categoryName && (
-                          <p className="text-[11px] text-muted-foreground mt-0.5">{item.categoryName}</p>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-
-                  {/* Type */}
-                  <td className="px-4 py-3 hidden md:table-cell">
-                    <TypeBadge type={item.contentType} />
-                  </td>
-
-                  {/* Status — inline dropdown for instant status change */}
-                  <td className="px-4 py-3">
-                    <Select
-                      value={item.status}
-                      disabled={processing === item.id}
-                      onValueChange={async (newStatus) => {
-                        if (newStatus === item.status) return;
-                        const ok = await patch(item.id, { status: newStatus });
-                        if (ok) { showToast(`Status → ${STATUS_CONFIG[newStatus]?.label ?? newStatus}`); fetchContent(); }
-                        else showToast("Status change failed", "error");
-                      }}
-                    >
-                      <SelectTrigger className={cn(
-                        "h-7 w-[120px] text-xs border font-medium",
-                        STATUS_CONFIG[item.status]?.badge
-                      )}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="DRAFT">Unpublished</SelectItem>
-                        <SelectItem value="PENDING">Pending</SelectItem>
-                        <SelectItem value="PUBLISHED">Published</SelectItem>
-                        <SelectItem value="REJECTED">Rejected</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </td>
-
-                  {/* Author */}
-                  <td className="px-4 py-3 hidden lg:table-cell">
-                    <span className="text-xs text-muted-foreground">
-                      {item.authorName ?? item.creatorName ?? "—"}
-                    </span>
-                  </td>
-
-                  {/* Date */}
-                  <td className="px-4 py-3 hidden sm:table-cell">
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      {formatDate(item.publishedAt ?? item.createdAt)}
-                    </span>
-                  </td>
-
-                  {/* Actions — icon buttons with tooltips */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
-
-                      {/* Preview */}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="sm"
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                            onClick={() => openPreview(item)}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Preview</TooltipContent>
-                      </Tooltip>
-
-                      {/* Edit */}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Link href={`/dashboard/admin/content/${item.id}/edit`}>
-                            <Button variant="ghost" size="sm"
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-blue-600 hover:bg-blue-50">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent>Edit</TooltipContent>
-                      </Tooltip>
-
-                      {/* Publish / Unpublish */}
-                      {item.status !== "PUBLISHED" ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm"
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-green-600 hover:bg-green-50"
-                              onClick={() => handlePublish(item)}
-                              disabled={processing === item.id}>
-                              {processing === item.id
-                                ? <RefreshCw className="h-4 w-4 animate-spin" />
-                                : <Check className="h-4 w-4" />}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Publish</TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm"
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-amber-600 hover:bg-amber-50"
-                              onClick={() => handleUnpublish(item)}
-                              disabled={processing === item.id}>
-                              {processing === item.id
-                                ? <RefreshCw className="h-4 w-4 animate-spin" />
-                                : <EyeOff className="h-4 w-4" />}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Unpublish</TooltipContent>
-                        </Tooltip>
-                      )}
-
-                      {/* Reject (pending only) */}
-                      {item.status === "PENDING" && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button variant="ghost" size="sm"
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50"
-                              onClick={() => { setRejectItem(item); setRejectOpen(true); }}
-                              disabled={processing === item.id}>
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Reject</TooltipContent>
-                        </Tooltip>
-                      )}
-
-                      {/* Delete */}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="sm"
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => { setDeleteItem(item); setDeleteOpen(true); }}
-                            disabled={processing === item.id}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Delete</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ── Pagination ─────────────────────────────────────────────────── */}
-      {pagination.totalPages > 1 && (
-        <div className="flex items-center justify-between pt-1">
-          <p className="text-xs text-muted-foreground">
-            Page {pagination.page} of {pagination.totalPages} · {pagination.total} items
-          </p>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page <= 1}>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm"
-              onClick={() => setPage((p) => p + 1)} disabled={page >= pagination.totalPages}>
-              Next
-            </Button>
+        {/* ── Compact filter bar ─────────────────────────────────────────── */}
+        <div className="flex flex-col sm:flex-row gap-2">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input placeholder="Search title or author…" value={search}
+              onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
+            {search && (
+              <button onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2">
+                <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+              </button>
+            )}
           </div>
+
+          {/* Type filter */}
+          <Select value={typeFilter || "ALL"}
+            onValueChange={(v) => setTypeFilter(v === "ALL" ? "" : v)}>
+            <SelectTrigger className="h-9 w-[160px]">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Types</SelectItem>
+              {CONTENT_TYPES.map((t) => (
+                <SelectItem key={t} value={t} className="capitalize">
+                  {t.toLowerCase().replace(/_/g, " ")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <span className="hidden sm:flex items-center text-xs text-muted-foreground whitespace-nowrap px-1">
+            {pagination.total} item{pagination.total !== 1 ? "s" : ""}
+          </span>
         </div>
-      )}
-</div>
+
+        {/* ── Status tabs ────────────────────────────────────────────────── */}
+        <div className="flex gap-1.5 flex-wrap border-b border-border pb-3">
+          {STATUS_TABS.map((t) => (
+            <button key={t.value}
+              onClick={() => { setStatusFilter(t.value); setPage(1); }}
+              className={cn(
+                "px-3 py-1 rounded-full text-xs font-medium border transition-all",
+                statusFilter === t.value
+                  ? "bg-primary text-white border-primary"
+                  : "bg-background border-border text-muted-foreground hover:bg-muted"
+              )}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Table ──────────────────────────────────────────────────────── */}
+        {loading ? (
+          <div className="flex items-center justify-center h-48">
+            <RefreshCw className="h-7 w-7 animate-spin text-muted-foreground" />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
+            <XCircle className="h-9 w-9 text-destructive" />
+            <p className="text-sm text-muted-foreground">Failed to load content</p>
+            <Button variant="outline" size="sm" onClick={fetchContent}>Try again</Button>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
+            <BookOpen className="h-9 w-9 text-muted-foreground" />
+            <p className="text-sm font-medium text-foreground">No content found</p>
+            <p className="text-xs text-muted-foreground">
+              {statusFilter === "PENDING"
+                ? "No pending content awaiting review"
+                : "Try a different filter or create new content"}
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/40 border-b">
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs">Content</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs hidden md:table-cell">Type</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs">Status</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs hidden lg:table-cell">Author</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-muted-foreground text-xs hidden sm:table-cell">Date</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-muted-foreground text-xs">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id} className="border-b last:border-0 hover:bg-muted/20 transition-colors">
+
+                    {/* Content */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        {item.featuredImage ? (
+                          <div className="relative h-9 w-12 flex-shrink-0 rounded-md overflow-hidden bg-muted">
+                            <Image src={item.featuredImage} alt="" fill
+                              className="object-cover" sizes="48px" />
+                          </div>
+                        ) : (
+                          <div className="h-9 w-12 flex-shrink-0 rounded-md bg-muted/60 flex items-center justify-center">
+                            <FileText className="h-4 w-4 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground text-sm line-clamp-1 leading-tight">
+                            {item.title}
+                          </p>
+                          {item.categoryName && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5">{item.categoryName}</p>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Type */}
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      <TypeBadge type={item.contentType} />
+                    </td>
+
+                    {/* Status — inline dropdown for instant status change */}
+                    <td className="px-4 py-3">
+                      <Select
+                        value={item.status}
+                        disabled={processing === item.id}
+                        onValueChange={async (newStatus) => {
+                          if (newStatus === item.status) return;
+                          const ok = await patch(item.id, { status: newStatus });
+                          if (ok) { showToast(`Status → ${STATUS_CONFIG[newStatus]?.label ?? newStatus}`); fetchContent(); }
+                          else showToast("Status change failed", "error");
+                        }}
+                      >
+                        <SelectTrigger className={cn(
+                          "h-7 w-[120px] text-xs border font-medium",
+                          STATUS_CONFIG[item.status]?.badge
+                        )}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="DRAFT">Unpublished</SelectItem>
+                          <SelectItem value="PENDING">Pending</SelectItem>
+                          <SelectItem value="PUBLISHED">Published</SelectItem>
+                          <SelectItem value="REJECTED">Rejected</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+
+                    {/* Author */}
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <span className="text-xs text-muted-foreground">
+                        {item.authorName ?? item.creatorName ?? "—"}
+                      </span>
+                    </td>
+
+                    {/* Date */}
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(item.publishedAt ?? item.createdAt)}
+                      </span>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1">
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="sm"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                              onClick={() => openPreview(item)}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Preview</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Link href={`/dashboard/admin/content/${item.id}/edit`}>
+                              <Button variant="ghost" size="sm"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-blue-600 hover:bg-blue-50">
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                          </TooltipTrigger>
+                          <TooltipContent>Edit</TooltipContent>
+                        </Tooltip>
+
+                        {item.status !== "PUBLISHED" ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="sm"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-green-600 hover:bg-green-50"
+                                onClick={() => handlePublish(item)}
+                                disabled={processing === item.id}>
+                                {processing === item.id
+                                  ? <RefreshCw className="h-4 w-4 animate-spin" />
+                                  : <Check className="h-4 w-4" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Publish</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="sm"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-amber-600 hover:bg-amber-50"
+                                onClick={() => handleUnpublish(item)}
+                                disabled={processing === item.id}>
+                                {processing === item.id
+                                  ? <RefreshCw className="h-4 w-4 animate-spin" />
+                                  : <EyeOff className="h-4 w-4" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Unpublish</TooltipContent>
+                          </Tooltip>
+                        )}
+
+                        {item.status === "PENDING" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="sm"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                                onClick={() => { setRejectItem(item); setRejectOpen(true); }}
+                                disabled={processing === item.id}>
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Reject</TooltipContent>
+                          </Tooltip>
+                        )}
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="sm"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => { setDeleteItem(item); setDeleteOpen(true); }}
+                              disabled={processing === item.id}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ── Pagination ─────────────────────────────────────────────────── */}
+        {pagination.totalPages > 1 && (
+          <div className="flex items-center justify-between pt-1">
+            <p className="text-xs text-muted-foreground">
+              Page {pagination.page} of {pagination.totalPages} · {pagination.total} items
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page <= 1}>
+                Previous
+              </Button>
+              <Button variant="outline" size="sm"
+                onClick={() => setPage((p) => p + 1)} disabled={page >= pagination.totalPages}>
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ════════════ DIALOGS ════════════════════════════════════════════ */}
 
       {/* ── Preview ──────────────────────────────────────────────────── */}
@@ -625,7 +629,6 @@ export default function ContentModeration() {
             </div>
           ) : previewItem ? (
             <div className="space-y-4">
-              {/* Badges row */}
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={previewItem.status} />
                 <TypeBadge type={previewItem.contentType} />
@@ -639,7 +642,6 @@ export default function ContentModeration() {
                 </span>
               </div>
 
-              {/* Image */}
               {previewItem.featuredImage && (
                 <div className="relative w-full h-48 rounded-xl overflow-hidden">
                   <Image src={previewItem.featuredImage} alt={previewItem.title}
@@ -647,7 +649,6 @@ export default function ContentModeration() {
                 </div>
               )}
 
-              {/* Title */}
               <div>
                 <h2 className="text-xl font-bold text-foreground">{previewItem.title}</h2>
                 {previewItem.summary && (
@@ -655,7 +656,6 @@ export default function ContentModeration() {
                 )}
               </div>
 
-              {/* Meta row */}
               <div className="flex flex-wrap gap-4 text-sm border-t border-b border-border py-3">
                 <div>
                   <span className="text-xs text-muted-foreground block">Author</span>
@@ -675,7 +675,6 @@ export default function ContentModeration() {
                 )}
               </div>
 
-              {/* Tags */}
               {previewItem.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {previewItem.tags.map((t) => (
@@ -687,7 +686,6 @@ export default function ContentModeration() {
                 </div>
               )}
 
-              {/* Content */}
               <div className="border border-border rounded-xl p-4 bg-muted/10">
                 <div className="prose prose-sm max-w-none text-foreground"
                   dangerouslySetInnerHTML={{ __html: previewItem.content }} />
@@ -796,4 +794,3 @@ export default function ContentModeration() {
     </TooltipProvider>
   );
 }
-

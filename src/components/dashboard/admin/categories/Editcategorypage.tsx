@@ -20,14 +20,17 @@ export default function EditCategoryPage({ id }: Props) {
   const [submitting,    setSubmitting]    = useState(false);
   const [submitError,   setSubmitError]   = useState<string | null>(null);
 
+  // ── Load existing category ─────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       setFetching(true);
+      setFetchError(null);
       try {
         const res = await fetch(`/api/admin/categories/${id}`);
         if (!res.ok) throw new Error("Category not found");
         const { data } = await res.json();
-        setLockedType(data.contentType);
+
+        setLockedType(data.contentType ?? "");
         setInitialValues({
           name:        data.name        ?? "",
           contentType: data.contentType ?? "BLOG",
@@ -42,6 +45,9 @@ export default function EditCategoryPage({ id }: Props) {
     })();
   }, [id]);
 
+  // ── Submit ─────────────────────────────────────────────────────────────────
+  // FIX: res.json() and the error check are inside the try block so API errors
+  // are caught and shown to the user instead of being silently swallowed.
   const handleSubmit = async (values: CategoryFormValues) => {
     setSubmitting(true);
     setSubmitError(null);
@@ -53,11 +59,14 @@ export default function EditCategoryPage({ id }: Props) {
           name:        values.name.trim(),
           description: values.description.trim() || null,
           isActive:    values.isActive,
-          // contentType intentionally omitted — API rejects it
+          // contentType intentionally omitted — API rejects changes to it
         }),
       });
+
+      // These must stay inside try so errors are caught and shown to the user
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to update category");
+
       router.push("/dashboard/admin/categories?updated=1");
     } catch (err: any) {
       setSubmitError(err.message);
@@ -66,6 +75,7 @@ export default function EditCategoryPage({ id }: Props) {
     }
   };
 
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (fetching) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">

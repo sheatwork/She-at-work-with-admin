@@ -7,13 +7,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import {
-  BookOpen,
-  Building2,
-  Check, Eye,
-  Mail,
-  RefreshCw, Search,
-  User,
-  X, XCircle,
+  BookOpen, Building2, Check, Eye,
+  Mail, RefreshCw, Search,
+  User, X, XCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -38,7 +34,7 @@ type Submission = {
 
 type Pagination = { page: number; limit: number; total: number; totalPages: number };
 
-// ─── Status config ──────────────────────────────────────────────────────────────
+// ─── Constants (outside component — never recreated on render) ─────────────────
 
 const STATUS_STYLES: Record<string, string> = {
   PUBLISHED: "bg-green-100 text-green-800 border-green-200",
@@ -75,19 +71,26 @@ export default function StorySubmissionsList() {
   const [page,       setPage]       = useState(1);
   const [toast,      setToast]      = useState<string | null>(null);
 
-  const debRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const debRef          = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef        = useRef<AbortController | null>(null);
+  // FIX: track toast timeout so overlapping toasts are properly cleared
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = (msg: string) => {
+  // FIX: useCallback + clear previous timeout before setting new one
+  const showToast = useCallback((msg: string) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     setToast(msg);
-    setTimeout(() => setToast(null), 3500);
-  };
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 3500);
+  }, []);
 
   // Show toast on redirect back from detail page
   useEffect(() => {
     const msg = searchParams.get("msg");
     if (msg) showToast(decodeURIComponent(msg));
-  }, [searchParams]);
+  }, [searchParams, showToast]);
 
   // Debounce search
   useEffect(() => {
@@ -96,8 +99,11 @@ export default function StorySubmissionsList() {
     return () => { if (debRef.current) clearTimeout(debRef.current); };
   }, [search]);
 
+  // FIX: reset page when status tab changes — kept as separate effect so
+  // fetchData dependency array stays stable and doesn't cause an extra call
   useEffect(() => { setPage(1); }, [status]);
 
+  // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
@@ -107,6 +113,7 @@ export default function StorySubmissionsList() {
       const sp = new URLSearchParams({ page: String(page), limit: "20" });
       if (status && status !== "ALL") sp.set("status", status);
       if (debSearch) sp.set("search", debSearch);
+
       const res = await fetch(`/api/admin/story-submissions?${sp}`, {
         signal: abortRef.current.signal,
       });
@@ -122,7 +129,11 @@ export default function StorySubmissionsList() {
     }
   }, [page, status, debSearch]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // FIX: single useEffect with abort cleanup — no duplicate calls
+  useEffect(() => {
+    fetchData();
+    return () => { abortRef.current?.abort(); };
+  }, [fetchData]);
 
   return (
     <div className="space-y-4">
@@ -138,8 +149,12 @@ export default function StorySubmissionsList() {
       <div className="flex gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search by name, title, email or business…"
-            value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input
+            placeholder="Search by name, title, email or business…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
           {search && (
             <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2">
               <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
@@ -154,14 +169,16 @@ export default function StorySubmissionsList() {
       {/* Status tabs */}
       <div className="flex gap-2 flex-wrap">
         {STATUS_TABS.map((s) => (
-          <button key={s}
+          <button
+            key={s}
             onClick={() => setStatus(s === "ALL" ? "" : s)}
             className={cn(
               "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
               (status === s || (s === "ALL" && !status))
                 ? "bg-primary text-white border-primary"
                 : "bg-secondary/40 border-border text-muted-foreground hover:bg-secondary"
-            )}>
+            )}
+          >
             {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
           </button>
         ))}
@@ -206,6 +223,7 @@ export default function StorySubmissionsList() {
             <tbody>
               {items.map((item) => (
                 <tr key={item.id} className="border-b hover:bg-muted/20 transition-colors">
+
                   {/* Title */}
                   <td className="px-4 py-3 max-w-xs">
                     <p className="font-medium text-foreground line-clamp-1">{item.title}</p>

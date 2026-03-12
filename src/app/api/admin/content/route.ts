@@ -3,7 +3,7 @@
 /*eslint-disable  @typescript-eslint/no-explicit-any*/
 import { db } from "@/db";
 import { CategoriesTable, ContentTable, ContentTagsTable, TagsTable, UsersTable } from "@/db/schema";
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 function toSlug(text: string): string {
@@ -13,52 +13,68 @@ function toSlug(text: string): string {
     .replace(/[^a-z0-9\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
-    + "-" + Date.now(); // ✅ appended timestamp avoids slug collision without extra DB read
+    + "-" + Date.now(); // appended timestamp avoids slug collision without extra DB read
 }
 
 // ─── GET /api/admin/content ───────────────────────────────────────────────────
-// Query: ?contentType=BLOG&status=PUBLISHED&page=1&limit=20
+// Query: ?contentType=BLOG&status=PUBLISHED&search=keyword&page=1&limit=20
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const contentType = searchParams.get("contentType") as typeof ContentTable.$inferSelect["contentType"] | null;
-    const status = searchParams.get("status") as typeof ContentTable.$inferSelect["status"] | null;
-    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
-    const limit = Math.min(100, parseInt(searchParams.get("limit") ?? "20")); // ✅ cap at 100
-    const offset = (page - 1) * limit;
+    const status      = searchParams.get("status")      as typeof ContentTable.$inferSelect["status"] | null;
+    // FIX: read the search param the frontend sends — was missing before, causing full table scans
+    const search      = searchParams.get("search")?.trim() ?? "";
+    const page        = Math.max(1, parseInt(searchParams.get("page")  ?? "1"));
+    const limit       = Math.min(100, parseInt(searchParams.get("limit") ?? "20")); // cap at 100
+    const offset      = (page - 1) * limit;
 
     // ── Build WHERE conditions ─────────────────────────────────────────────────
     const conditions = [];
     if (contentType) conditions.push(eq(ContentTable.contentType, contentType));
-    if (status) conditions.push(eq(ContentTable.status, status));
+    if (status)      conditions.push(eq(ContentTable.status, status));
+
+    // FIX: apply search filter using ilike (case-insensitive LIKE).
+    // Without this the frontend search box sent a param the API ignored,
+    // causing a full table scan on every keystroke.
+    if (search) {
+      conditions.push(
+        or(
+          ilike(ContentTable.title,      `%${search}%`),
+          ilike(ContentTable.summary,    `%${search}%`),
+          ilike(ContentTable.authorName, `%${search}%`),
+        )
+      );
+    }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    // ✅ Run count + data in parallel — halves round-trips vs sequential queries
+    // Run count + data in parallel — halves round-trips vs sequential queries
     const [rows, [{ total }]] = await Promise.all([
       db
         .select({
-          id: ContentTable.id,
-          title: ContentTable.title,
-          slug: ContentTable.slug,
-          summary: ContentTable.summary,
-          contentType: ContentTable.contentType,
-          status: ContentTable.status,
-          featuredImage: ContentTable.featuredImage,
-          readingTime: ContentTable.readingTime,
-          publishedAt: ContentTable.publishedAt,
-          createdAt: ContentTable.createdAt,
-          authorName: ContentTable.authorName,
+          id:           ContentTable.id,
+          title:        ContentTable.title,
+          slug:         ContentTable.slug,
+          summary:      ContentTable.summary,
+          contentType:  ContentTable.contentType,
+          status:       ContentTable.status,
+          featuredImage:ContentTable.featuredImage,
+          readingTime:  ContentTable.readingTime,
+          publishedAt:  ContentTable.publishedAt,
+          createdAt:    ContentTable.createdAt,
+          authorName:   ContentTable.authorName,
           categoryName: CategoriesTable.name,
-          creatorName: UsersTable.name,
+          creatorName:  UsersTable.name,
         })
         .from(ContentTable)
         .leftJoin(CategoriesTable, eq(ContentTable.categoryId, CategoriesTable.id))
-        .leftJoin(UsersTable, eq(ContentTable.createdBy, UsersTable.id))
+        .leftJoin(UsersTable,      eq(ContentTable.createdBy,  UsersTable.id))
         .where(whereClause)
         .orderBy(desc(ContentTable.createdAt))
         .limit(limit)
         .offset(offset),
+
       db
         .select({ total: count() })
         .from(ContentTable)
@@ -71,26 +87,28 @@ export async function GET(req: NextRequest) {
       pagination: {
         page,
         limit,
-        total: Number(total),
+        total:      Number(total),
         totalPages: Math.ceil(Number(total) / limit),
       },
     });
   } catch (err) {
-    console.error("[GET /admin/content]", err);
+    if (process.env.NODE_ENV === "development") {
+      console.error("[GET /admin/content]", err);
+    }
     return NextResponse.json({ success: false, error: "Failed to fetch content" }, { status: 500 });
   }
 }
 
 // ─── POST /api/admin/content ──────────────────────────────────────────────────
 // Body: { title, content, contentType, summary?, categoryId?, authorName?,
-//         featuredImage?, externalUrl?, status?, publishedAt?, readingTime? }
+//         featuredImage?, externalUrl?, status?, publishedAt?, readingTime?, tags? }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
       title, content, contentType, summary, categoryId,
       authorName, featuredImage, externalUrl, status,
-      publishedAt, readingTime, createdBy, tags = [], // Add tags
+      publishedAt, readingTime, createdBy, tags = [],
     } = body;
 
     if (!title || !content || !contentType) {
@@ -102,38 +120,37 @@ export async function POST(req: NextRequest) {
 
     const slug = toSlug(title);
 
-    // Use transaction to ensure both content and tags are created
+    // Use transaction to ensure both content and tags are created atomically
     const result = await db.transaction(async (tx) => {
-      // Insert content
       const [newContent] = await tx
         .insert(ContentTable)
         .values({
-          title: title.trim(),
+          title:         title.trim(),
           slug,
           content,
           contentType,
-          summary: summary?.trim() ?? null,
-          categoryId: categoryId ?? null,
-          createdBy: createdBy ?? null,
-          authorName: authorName?.trim() ?? null,
-          featuredImage: featuredImage ?? null,
-          externalUrl: externalUrl ?? null,
-          readingTime: readingTime ?? null,
-          status: status ?? "DRAFT",
-          publishedAt: publishedAt ? new Date(publishedAt) : null,
+          summary:       summary?.trim()    ?? null,
+          categoryId:    categoryId         ?? null,
+          createdBy:     createdBy          ?? null,
+          authorName:    authorName?.trim() ?? null,
+          featuredImage: featuredImage      ?? null,
+          externalUrl:   externalUrl        ?? null,
+          readingTime:   readingTime        ?? null,
+          status:        status             ?? "DRAFT",
+          publishedAt:   publishedAt ? new Date(publishedAt) : null,
         })
         .returning();
 
-      // Insert tags if any
       if (tags.length > 0) {
         await tx.insert(ContentTagsTable).values(
           tags.map((tagId: string) => ({
             contentId: newContent.id,
-            tagId: tagId,
+            tagId,
           }))
         );
 
-        // Increment usage count for each tag
+        // Increment usage count for each tag — done individually so the
+        // update is scoped per tag ID (avoids bulk-update race conditions)
         for (const tagId of tags) {
           await tx
             .update(TagsTable)
@@ -153,7 +170,9 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
-    console.error("[POST /admin/content]", err);
+    if (process.env.NODE_ENV === "development") {
+      console.error("[POST /admin/content]", err);
+    }
     return NextResponse.json({ success: false, error: "Failed to create content" }, { status: 500 });
   }
 }

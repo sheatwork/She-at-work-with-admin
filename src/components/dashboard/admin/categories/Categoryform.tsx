@@ -14,18 +14,18 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { RefreshCw, Save, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
+// ─── Constants (outside component — never recreated on render) ─────────────────
 
 const CONTENT_TYPES = [
-  { value: "BLOG",          label: "Blog" },
-  { value: "NEWS",          label: "News" },
-  { value: "ENTRECHAT",     label: "Entrechat" },
-  { value: "EVENT",         label: "Event" },
-  { value: "PRESS",         label: "Press" },
+  { value: "BLOG",          label: "Blog"          },
+  { value: "NEWS",          label: "News"          },
+  { value: "ENTRECHAT",     label: "Entrechat"     },
+  { value: "EVENT",         label: "Event"         },
+  { value: "PRESS",         label: "Press"         },
   { value: "SUCCESS_STORY", label: "Success Story" },
-  { value: "RESOURCE",      label: "Resource" },
+  { value: "RESOURCE",      label: "Resource"      },
 ] as const;
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ export type CategoryFormValues = {
 export interface CategoryFormProps {
   mode:           "create" | "edit";
   initialValues?: Partial<CategoryFormValues>;
-  /** contentType is locked after creation */
+  /** contentType is locked after creation — pass the existing value */
   lockedType?:    string;
   onSubmit:       (values: CategoryFormValues) => Promise<void>;
   submitting:     boolean;
@@ -48,10 +48,14 @@ export interface CategoryFormProps {
 }
 
 function toPreviewSlug(name: string): string {
-  return name.toLowerCase().trim()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-") || "your-category-slug";
+  return (
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-") || "your-category-slug"
+  );
 }
 
 const EMPTY: CategoryFormValues = {
@@ -66,8 +70,13 @@ export default function CategoryForm({
   const [values,  setValues]  = useState<CategoryFormValues>({ ...EMPTY, ...initialValues });
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
+  // FIX: guard so initialValues is only applied once on first load (edit mode),
+  // not on every parent re-render. Mirrors the pattern used in ContentForm.
+  const initialApplied = useRef(false);
   useEffect(() => {
-    if (initialValues) setValues({ ...EMPTY, ...initialValues });
+    if (!initialValues || initialApplied.current) return;
+    initialApplied.current = true;
+    setValues({ ...EMPTY, ...initialValues });
   }, [initialValues]);
 
   const set = (key: keyof CategoryFormValues, val: string | boolean) =>
@@ -75,8 +84,8 @@ export default function CategoryForm({
 
   const touch = (key: string) => setTouched((t) => ({ ...t, [key]: true }));
 
-  const nameError = touched.name && !values.name.trim() ? "Name is required" : null;
-  const typeError = touched.contentType && !values.contentType ? "Content type is required" : null;
+  const nameError = touched.name        && !values.name.trim()   ? "Name is required"         : null;
+  const typeError = touched.contentType && !values.contentType   ? "Content type is required" : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,17 +115,22 @@ export default function CategoryForm({
             <Label htmlFor="cat-name" className="mb-1.5 block">
               Category Name <span className="text-red-500">*</span>
             </Label>
-            <Input id="cat-name"
+            <Input
+              id="cat-name"
               placeholder="e.g. Women in Tech"
               value={values.name}
               onChange={(e) => set("name", e.target.value)}
               onBlur={() => touch("name")}
-              className={cn(nameError && "border-red-400 focus-visible:ring-red-400")} />
+              className={cn(nameError && "border-red-400 focus-visible:ring-red-400")}
+            />
             {nameError && <p className="text-xs text-red-600 mt-1">{nameError}</p>}
-            {/* Slug preview */}
+            {/* Live slug preview */}
             {values.name && (
               <p className="text-xs text-muted-foreground mt-1.5">
-                Slug: <code className="bg-muted px-1.5 py-0.5 rounded">{toPreviewSlug(values.name)}</code>
+                Slug:{" "}
+                <code className="bg-muted px-1.5 py-0.5 rounded">
+                  {toPreviewSlug(values.name)}
+                </code>
               </p>
             )}
           </div>
@@ -127,17 +141,19 @@ export default function CategoryForm({
               Description
               <span className="text-xs text-muted-foreground ml-2">(optional)</span>
             </Label>
-            <Textarea id="cat-desc" rows={4}
+            <Textarea
+              id="cat-desc"
+              rows={4}
               placeholder="Describe what kind of content belongs in this category…"
               value={values.description}
-              onChange={(e) => set("description", e.target.value)} />
+              onChange={(e) => set("description", e.target.value)}
+            />
           </div>
         </div>
 
         {/* ── Right: settings sidebar ────────────────────────────────────── */}
         <div className="space-y-4">
 
-          {/* Type + status card */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold">Settings</CardTitle>
@@ -150,6 +166,7 @@ export default function CategoryForm({
                   Content Type <span className="text-red-500">*</span>
                 </Label>
                 {lockedType ? (
+                  // Locked after creation — show read-only value
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground capitalize">
                       {lockedType.toLowerCase().replace("_", " ")}
@@ -160,8 +177,10 @@ export default function CategoryForm({
                   </div>
                 ) : (
                   <>
-                    <Select value={values.contentType}
-                      onValueChange={(v) => { set("contentType", v); touch("contentType"); }}>
+                    <Select
+                      value={values.contentType}
+                      onValueChange={(v) => { set("contentType", v); touch("contentType"); }}
+                    >
                       <SelectTrigger className={cn(typeError && "border-red-400")}>
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -179,16 +198,19 @@ export default function CategoryForm({
                 )}
               </div>
 
-              {/* Active toggle (edit only) */}
+              {/* Active toggle — edit mode only */}
               {mode === "edit" && (
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-foreground">Active</p>
-                    <p className="text-xs text-muted-foreground">Inactive categories are hidden from authors</p>
+                    <p className="text-xs text-muted-foreground">
+                      Inactive categories are hidden from authors
+                    </p>
                   </div>
                   <Switch
                     checked={values.isActive}
-                    onCheckedChange={(v) => set("isActive", v)} />
+                    onCheckedChange={(v) => set("isActive", v)}
+                  />
                 </div>
               )}
             </CardContent>
@@ -198,9 +220,13 @@ export default function CategoryForm({
           <Card className="bg-muted/30">
             <CardContent className="pt-4 text-xs text-muted-foreground space-y-2">
               <p>Categories group content by topic and content type.</p>
-              <p>The slug is auto-generated from the name and must be unique per content type.</p>
+              <p>
+                The slug is auto-generated from the name and must be unique per content type.
+              </p>
               {mode === "edit" && (
-                <p>Renaming will auto-update the slug — make sure no existing links depend on it.</p>
+                <p>
+                  Renaming will auto-update the slug — make sure no existing links depend on it.
+                </p>
               )}
             </CardContent>
           </Card>

@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import ContentForm, { ContentFormValues } from "./Contentform";
 
-
 interface EditContentPageProps {
   id: string;
 }
@@ -25,63 +24,65 @@ export default function EditContentPage({ id }: EditContentPageProps) {
   const [contentType,   setContentType]   = useState<string>("");
 
   // ── Load existing content ──────────────────────────────────────────────────
-useEffect(() => {
-  (async () => {
-    setFetching(true);
-    setFetchError(null);
+  useEffect(() => {
+    (async () => {
+      setFetching(true);
+      setFetchError(null);
+      try {
+        const res = await fetch(`/api/admin/content/${id}`);
+        if (!res.ok) throw new Error("Content not found");
+        const { data } = await res.json();
+
+        setSlug(data.slug ?? "");
+        setContentType(data.contentType ?? "");
+
+        setInitialValues({
+          title:         data.title         ?? "",
+          content:       data.content       ?? "",
+          summary:       data.summary       ?? "",
+          contentType:   data.contentType   ?? "BLOG",
+          categoryId:    data.categoryId    ?? "",
+          authorName:    data.authorName    ?? "",
+          featuredImage: data.featuredImage ?? "",
+          externalUrl:   data.externalUrl   ?? "",
+          readingTime:   data.readingTime   ? String(data.readingTime) : "",
+          status:        data.status        ?? "DRAFT",
+          tags:          data.tags?.map((t: any) => t.id) ?? [],
+        });
+      } catch (err: any) {
+        setFetchError(err.message);
+      } finally {
+        setFetching(false);
+      }
+    })();
+  }, [id]);
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
+  // FIX: res.json() and the error check are now INSIDE the try block.
+  // Previously the try closed before these lines, so API errors were silently
+  // swallowed and the user never saw an error message.
+  const handleSubmit = async (values: ContentFormValues) => {
+    setSubmitting(true);
+    setSubmitError(null);
     try {
-      const res = await fetch(`/api/admin/content/${id}`);
-      if (!res.ok) throw new Error("Content not found");
-      const { data } = await res.json();
-
-      setSlug(data.slug ?? "");
-      setContentType(data.contentType ?? "");
-
-      setInitialValues({
-        title:        data.title        ?? "",
-        content:      data.content      ?? "",
-        summary:      data.summary      ?? "",
-        contentType:  data.contentType  ?? "BLOG",
-        categoryId:   data.categoryId   ?? "",
-        authorName:   data.authorName   ?? "",
-        featuredImage:data.featuredImage?? "",
-        externalUrl:  data.externalUrl  ?? "",
-        readingTime:  data.readingTime  ? String(data.readingTime) : "",
-        status:       data.status       ?? "DRAFT",
-        tags:         data.tags?.map((t: any) => t.id) ?? [], // Add this
+      const res = await fetch(`/api/admin/content/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title:         values.title.trim(),
+          content:       values.content,
+          summary:       values.summary.trim()       || null,
+          categoryId:    values.categoryId           || null,
+          authorName:    values.authorName.trim()    || null,
+          featuredImage: values.featuredImage.trim() || null,
+          externalUrl:   values.externalUrl.trim()   || null,
+          readingTime:   values.readingTime ? Number(values.readingTime) : null,
+          status:        values.status,
+          tags:          values.tags,
+        }),
       });
-    } catch (err: any) {
-      setFetchError(err.message);
-    } finally {
-      setFetching(false);
-    }
-  })();
-}, [id]);
 
-const handleSubmit = async (values: ContentFormValues) => {
-  setSubmitting(true);
-  setSubmitError(null);
-  try {
-    const res = await fetch(`/api/admin/content/${id}`, {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title:        values.title.trim(),
-        content:      values.content,
-        summary:      values.summary.trim()    || null,
-        categoryId:   values.categoryId        || null,
-        authorName:   values.authorName.trim() || null,
-        featuredImage:values.featuredImage.trim() || null,
-        externalUrl:  values.externalUrl.trim()   || null,
-        readingTime:  values.readingTime ? Number(values.readingTime) : null,
-        status:       values.status,
-        tags:         values.tags, // Add this
-      }),
-    });
-
-    // ... rest of the code
-  
-
+      // These must stay inside try so errors are caught and shown to the user
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to update content");
 
@@ -128,7 +129,6 @@ const handleSubmit = async (values: ContentFormValues) => {
             </button>
           </Link>
         </div>
-        {/* Link to public page if published */}
         {contentType && slug && (
           <Link
             href={`/${contentType.toLowerCase()}s/${slug}`}

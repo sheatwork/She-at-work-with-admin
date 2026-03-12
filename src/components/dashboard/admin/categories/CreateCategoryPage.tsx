@@ -8,12 +8,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import CategoryForm, { CategoryFormValues } from "./Categoryform";
 
-
 export default function CreateCategoryPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
 
+  // FIX: res.json() and error check are inside the try block so API errors
+  // are caught and surfaced to the user (same fix applied to EditContentPage).
   const handleSubmit = async (values: CategoryFormValues) => {
     setSubmitting(true);
     setError(null);
@@ -27,8 +28,11 @@ export default function CreateCategoryPage() {
           description: values.description.trim() || null,
         }),
       });
+
+      // Must be inside try so errors are caught and shown
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to create category");
+
       router.push("/dashboard/admin/categories?created=1");
     } catch (err: any) {
       setError(err.message);

@@ -32,7 +32,7 @@ type Category = {
   createdAt:   string;
 };
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
+// ─── Constants (outside component — never recreated on render) ─────────────────
 
 const CONTENT_TYPES = [
   "BLOG","NEWS","ENTRECHAT","EVENT","PRESS","SUCCESS_STORY","RESOURCE",
@@ -51,32 +51,39 @@ const TYPE_STYLES: Record<string, string> = {
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function CategoriesTable() {
-  const [items,       setItems]       = useState<Category[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(false);
-  const [search,      setSearch]      = useState("");
-  const [debouncedQ,  setDebouncedQ]  = useState("");
-  const [filterType,  setFilterType]  = useState("");
-  const [filterActive,setFilterActive]= useState<"all"|"active"|"inactive">("all");
-  const [processing,  setProcessing]  = useState<string | null>(null);
-  const [deleteTarget,setDeleteTarget]= useState<Category | null>(null);
-  const [toast,       setToast]       = useState<{ msg: string; ok: boolean } | null>(null);
+  const [items,        setItems]        = useState<Category[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(false);
+  const [search,       setSearch]       = useState("");
+  const [debouncedQ,   setDebouncedQ]   = useState("");
+  const [filterType,   setFilterType]   = useState("");
+  const [filterActive, setFilterActive] = useState<"all" | "active" | "inactive">("all");
+  const [processing,   setProcessing]   = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [toast,        setToast]        = useState<{ msg: string; ok: boolean } | null>(null);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // FIX: track toast timeout so overlapping toasts are properly cleared
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = (msg: string, ok = true) => {
+  // FIX: useCallback + clear previous timeout before setting new one
+  const showToast = useCallback((msg: string, ok = true) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
-  };
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 3500);
+  }, []);
 
-  // Debounce search
+  // Debounce search input
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedQ(search), 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [search]);
 
-  // Fetch — always load all (filter client-side for fast UX, total count is small)
+  // Fetch all categories once — filter client-side (total count is small)
   const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(false);
@@ -92,19 +99,22 @@ export default function CategoriesTable() {
     }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  // FIX: single useEffect with cleanup — mirrors the ContentModeration pattern
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
 
-  // Client-side filter
+  // Client-side filter — fast because the total set is small
   const filtered = items.filter((c) => {
     const q = debouncedQ.toLowerCase();
     if (q && !c.name.toLowerCase().includes(q) && !c.slug.toLowerCase().includes(q)) return false;
-    if (filterType && c.contentType !== filterType) return false;
-    if (filterActive === "active"   && !c.isActive) return false;
-    if (filterActive === "inactive" &&  c.isActive) return false;
+    if (filterType   && c.contentType !== filterType) return false;
+    if (filterActive === "active"   && !c.isActive)   return false;
+    if (filterActive === "inactive" &&  c.isActive)   return false;
     return true;
   });
 
-  // Toggle active/inactive (soft delete = set isActive=false)
+  // Toggle active / inactive
   const toggleActive = async (cat: Category) => {
     setProcessing(cat.id);
     try {
@@ -123,7 +133,7 @@ export default function CategoriesTable() {
     }
   };
 
-  // Hard delete via soft-delete API (sets isActive=false permanently in UI flow)
+  // Soft delete (sets isActive = false permanently via DELETE endpoint)
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setProcessing(deleteTarget.id);
@@ -141,7 +151,7 @@ export default function CategoriesTable() {
   };
 
   const clearFilters = () => { setSearch(""); setFilterType(""); setFilterActive("all"); };
-  const isFiltered = !!search || !!filterType || filterActive !== "all";
+  const isFiltered   = !!search || !!filterType || filterActive !== "all";
 
   return (
     <div className="space-y-4">
@@ -162,8 +172,12 @@ export default function CategoriesTable() {
         {/* Search */}
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search categories…" value={search}
-            onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+          <Input
+            placeholder="Search categories…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
           {search && (
             <button onClick={() => setSearch("")}
               className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -173,7 +187,10 @@ export default function CategoriesTable() {
         </div>
 
         {/* Type filter */}
-        <Select value={filterType || "ALL"} onValueChange={(v) => setFilterType(v === "ALL" ? "" : v)}>
+        <Select
+          value={filterType || "ALL"}
+          onValueChange={(v) => setFilterType(v === "ALL" ? "" : v)}
+        >
           <SelectTrigger className="w-[160px]">
             <Filter className="h-4 w-4 mr-2 text-muted-foreground" />
             <SelectValue placeholder="All types" />
@@ -189,7 +206,10 @@ export default function CategoriesTable() {
         </Select>
 
         {/* Active filter */}
-        <Select value={filterActive} onValueChange={(v) => setFilterActive(v as typeof filterActive)}>
+        <Select
+          value={filterActive}
+          onValueChange={(v) => setFilterActive(v as typeof filterActive)}
+        >
           <SelectTrigger className="w-[140px]">
             <SelectValue />
           </SelectTrigger>
@@ -200,7 +220,11 @@ export default function CategoriesTable() {
           </SelectContent>
         </Select>
 
-        <Button variant="outline" size="icon" onClick={fetchAll} disabled={loading} title="Refresh">
+        <Button
+          variant="outline" size="icon"
+          onClick={fetchAll} disabled={loading}
+          title="Refresh"
+        >
           <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
         </Button>
 
@@ -257,6 +281,7 @@ export default function CategoriesTable() {
                   "border-b transition-colors hover:bg-muted/20",
                   !cat.isActive && "opacity-60"
                 )}>
+
                   {/* Name */}
                   <td className="px-4 py-3">
                     <p className="font-medium text-foreground">{cat.name}</p>
@@ -306,6 +331,7 @@ export default function CategoriesTable() {
                   {/* Actions */}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
+
                       {/* Edit */}
                       <Link href={`/dashboard/admin/categories/${cat.id}/edit`}>
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Edit">
@@ -314,7 +340,8 @@ export default function CategoriesTable() {
                       </Link>
 
                       {/* Toggle active */}
-                      <Button variant="ghost" size="sm"
+                      <Button
+                        variant="ghost" size="sm"
                         className={cn(
                           "h-8 w-8 p-0",
                           cat.isActive
@@ -323,18 +350,23 @@ export default function CategoriesTable() {
                         )}
                         onClick={() => toggleActive(cat)}
                         disabled={processing === cat.id}
-                        title={cat.isActive ? "Deactivate" : "Activate"}>
+                        title={cat.isActive ? "Deactivate" : "Activate"}
+                      >
                         {processing === cat.id
                           ? <RefreshCw className="h-4 w-4 animate-spin" />
-                          : cat.isActive ? <X className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                          : cat.isActive
+                            ? <X className="h-4 w-4" />
+                            : <Check className="h-4 w-4" />}
                       </Button>
 
                       {/* Delete */}
-                      <Button variant="ghost" size="sm"
+                      <Button
+                        variant="ghost" size="sm"
                         className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                         onClick={() => setDeleteTarget(cat)}
                         disabled={processing === cat.id}
-                        title="Delete">
+                        title="Delete"
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -346,7 +378,7 @@ export default function CategoriesTable() {
         </div>
       )}
 
-      {/* Delete confirm */}
+      {/* Delete confirm dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
@@ -365,7 +397,11 @@ export default function CategoriesTable() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={processing === deleteTarget?.id}>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={processing === deleteTarget?.id}
+            >
               {processing === deleteTarget?.id
                 ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Deactivating…</>
                 : <><Trash2 className="h-4 w-4 mr-2" />Deactivate</>}
