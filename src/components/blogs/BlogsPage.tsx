@@ -12,12 +12,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Cta from "../common/Cta";
-import { getCategoryIcon, MultiSelectDropdown } from "../common/MultiSelectDropdown";
+
 import { AnimatedText, ScrollFade, StaggerChildren } from "../common/ScrollFade";
 import { ScrollReveal } from "../common/ScrollReveal";
 import { Chip } from "./Chip";
 import { SearchSuggestions } from "./SearchSuggestions";
 import { SkeletonCard } from "./SkeletonCard";
+import { getCategoryIcon } from "../content/categoryIcons";
+import { MultiSelectDropdown } from "../common/MultiSelectDropdown";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
