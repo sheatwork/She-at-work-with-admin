@@ -18,7 +18,7 @@ import { SearchSuggestions } from "./SearchSuggestions";
 import { Chip } from "../blogs/Chip";
 import { SkeletonCard } from "../blogs/SkeletonCard";
 
-// ─── Constants ──────────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const ITEMS_PER_PAGE = 12;
 const DEBOUNCE_MS    = 500;
@@ -31,7 +31,7 @@ const predefinedDateRanges = [
   { label: "Custom",     value: "custom" },
 ];
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Category = { id: string; name: string; slug: string };
 type Tag      = { id: string; name: string; slug: string };
@@ -60,7 +60,6 @@ type ApiResponse = {
   limit:        number;
   categories:   Category[];
   readingTimes: string[];
-  // New: suggestion candidates derived from current page
   suggestionCandidates?: {
     id: string;
     title: string;
@@ -103,24 +102,24 @@ function buildPageNumbers(current: number, total: number, compact = false): (num
 }
 
 function buildUrl(opts: {
-  page?:         number;
-  limit?:        number;
-  search?:       string;
-  categorySlug?: string;
-  tagSlug?:      string;
-  dateFrom?:     string;
-  dateTo?:       string;
-  readingTime?:  string;
+  page?:          number;
+  limit?:         number;
+  search?:        string;
+  categorySlugs?: string[];
+  tagSlug?:       string;
+  dateFrom?:      string;
+  dateTo?:        string;
+  readingTime?:   string;
 }): string {
   const p = new URLSearchParams({ contentType: "NEWS" });
-  if (opts.page)         p.set("page",        String(opts.page));
-  if (opts.limit)        p.set("limit",       String(opts.limit));
-  if (opts.search)       p.set("search",      opts.search);
-  if (opts.categorySlug) p.set("category",    opts.categorySlug);
-  if (opts.tagSlug)      p.set("tag",         opts.tagSlug);
-  if (opts.dateFrom)     p.set("dateFrom",    opts.dateFrom);
-  if (opts.dateTo)       p.set("dateTo",      opts.dateTo);
-  if (opts.readingTime)  p.set("readingTime", opts.readingTime);
+  if (opts.page)                       p.set("page",        String(opts.page));
+  if (opts.limit)                      p.set("limit",       String(opts.limit));
+  if (opts.search)                     p.set("search",      opts.search);
+  if (opts.categorySlugs?.length)      p.set("category",    opts.categorySlugs.join(","));
+  if (opts.tagSlug)                    p.set("tag",         opts.tagSlug);
+  if (opts.dateFrom)                   p.set("dateFrom",    opts.dateFrom);
+  if (opts.dateTo)                     p.set("dateTo",      opts.dateTo);
+  if (opts.readingTime)                p.set("readingTime", opts.readingTime);
   return `/api/content?${p}`;
 }
 
@@ -129,7 +128,6 @@ function rankSuggestions(
   query: string
 ): SearchSuggestion[] {
   if (!results?.length) return [];
-  
   const q = query.toLowerCase();
   return results
     .map((r) => {
@@ -166,15 +164,15 @@ function useDebounce<T>(value: T, delay: number): T {
 
 export default function NewsPage() {
 
-  // ── Filter state ─────────────────────────────────────────────────────────
-  const [selectedCategorySlug, setSelectedCategorySlug] = useState("");
-  const [tagInput, setTagInput]                         = useState("");
-  const [selectedReadingTimes, setSelectedReadingTimes] = useState<string[]>([]);
-  const [currentPage, setCurrentPage]                   = useState(1);
-  const [searchQuery, setSearchQuery]                   = useState("");
-  const [dateRange, setDateRange]                       = useState({ from: "", to: "" });
-  const [selectedDateRange, setSelectedDateRange]       = useState("");
-  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [selectedCategorySlugs, setSelectedCategorySlugs] = useState<string[]>([]);
+  const [tagInput, setTagInput]                           = useState("");
+  const [selectedReadingTimes, setSelectedReadingTimes]   = useState<string[]>([]);
+  const [currentPage, setCurrentPage]                     = useState(1);
+  const [searchQuery, setSearchQuery]                     = useState("");
+  const [dateRange, setDateRange]                         = useState({ from: "", to: "" });
+  const [selectedDateRange, setSelectedDateRange]         = useState("");
+  const [showCustomDatePicker, setShowCustomDatePicker]   = useState(false);
 
   const debouncedSearch  = useDebounce(searchQuery, DEBOUNCE_MS);
   const debouncedTagSlug = useDebounce(tagInput,    DEBOUNCE_MS);
@@ -226,7 +224,7 @@ export default function NewsPage() {
     visible: { opacity: 1, y: 0, transition: { duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] } },
   };
 
-  // ── Apply response with suggestions ───────────────────────────────────────
+  // ── Apply response ────────────────────────────────────────────────────────
   const applyResponse = useCallback((data: ApiResponse, query?: string) => {
     setNewsItems(data.items);
     setTotalPages(data.totalPages);
@@ -234,7 +232,6 @@ export default function NewsPage() {
     setCategories(data.categories ?? []);
     setReadingTimeBuckets(data.readingTimes ?? []);
 
-    // Derive suggestions from the grid response candidates
     const q = query ?? "";
     if (data.suggestionCandidates?.length && q.length >= 2) {
       const ranked = rankSuggestions(data.suggestionCandidates, q);
@@ -246,14 +243,13 @@ export default function NewsPage() {
     }
   }, []);
 
-  // ── On mount: single fetch returns news + meta ────────────────────────────
+  // ── On mount ──────────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch(buildUrl({ page: 1, limit: ITEMS_PER_PAGE }));
         if (!res.ok) return;
         const data: ApiResponse = await res.json();
-
         applyResponse(data);
         setFeaturedNews(data.items[0] ?? null);
         setLatestHeadlines(data.items.slice(0, 4));
@@ -265,52 +261,38 @@ export default function NewsPage() {
     })();
   }, [applyResponse]);
 
-  // ── Check if filters actually changed ─────────────────────────────────────
+  // ── Check if filters changed ──────────────────────────────────────────────
   const haveFiltersChanged = useCallback(() => {
     const currentFilters = {
-      page: currentPage,
-      search: debouncedSearch,
-      category: selectedCategorySlug,
-      tag: debouncedTagSlug,
+      page:         currentPage,
+      search:       debouncedSearch,
+      category:     selectedCategorySlugs.join(","),
+      tag:          debouncedTagSlug,
       readingTimes: selectedReadingTimes.join(","),
-      dateFrom: dateRange.from,
-      dateTo: dateRange.to
+      dateFrom:     dateRange.from,
+      dateTo:       dateRange.to,
     };
 
-    const prev = prevFiltersRef.current;
-    
-    const changed = 
-      prev.page !== currentFilters.page ||
-      prev.search !== currentFilters.search ||
-      prev.category !== currentFilters.category ||
-      prev.tag !== currentFilters.tag ||
+    const prev    = prevFiltersRef.current;
+    const changed =
+      prev.page         !== currentFilters.page         ||
+      prev.search       !== currentFilters.search       ||
+      prev.category     !== currentFilters.category     ||
+      prev.tag          !== currentFilters.tag          ||
       prev.readingTimes !== currentFilters.readingTimes ||
-      prev.dateFrom !== currentFilters.dateFrom ||
-      prev.dateTo !== currentFilters.dateTo;
+      prev.dateFrom     !== currentFilters.dateFrom     ||
+      prev.dateTo       !== currentFilters.dateTo;
 
-    if (changed) {
-      prevFiltersRef.current = currentFilters;
-    }
-
+    if (changed) prevFiltersRef.current = currentFilters;
     return changed;
-  }, [currentPage, debouncedSearch, selectedCategorySlug, debouncedTagSlug, selectedReadingTimes, dateRange.from, dateRange.to]);
+  }, [currentPage, debouncedSearch, selectedCategorySlugs, debouncedTagSlug, selectedReadingTimes, dateRange.from, dateRange.to]);
 
   // ── Fetch on filter / page change ─────────────────────────────────────────
   const fetchFilteredNews = useCallback(async () => {
-    // 🚨 Don't fetch if search is too short (1 character)
-    if (debouncedSearch.length > 0 && debouncedSearch.length < 2) {
-      return;
-    }
+    if (debouncedSearch.length > 0 && debouncedSearch.length < 2) return;
+    if (!haveFiltersChanged()) return;
 
-    // Check if filters actually changed to prevent duplicate requests
-    if (!haveFiltersChanged()) {
-      return;
-    }
-
-    if (filterAbortRef.current) {
-      filterAbortRef.current.abort();
-    }
-    
+    if (filterAbortRef.current) filterAbortRef.current.abort();
     filterAbortRef.current = new AbortController();
     setIsFilterLoading(true);
 
@@ -323,21 +305,20 @@ export default function NewsPage() {
 
       const res = await fetch(
         buildUrl({
-          page:         currentPage,
-          limit:        ITEMS_PER_PAGE,
-          search:       debouncedSearch.length >= 2 ? debouncedSearch : undefined,
-          categorySlug: selectedCategorySlug || undefined,
-          tagSlug:      debouncedTagSlug || undefined,
-          dateFrom:     dateRange.from || undefined,
-          dateTo:       dateRange.to || undefined,
-          readingTime:  readingTimeParam,
+          page:          currentPage,
+          limit:         ITEMS_PER_PAGE,
+          search:        debouncedSearch.length >= 2 ? debouncedSearch : undefined,
+          categorySlugs: selectedCategorySlugs.length ? selectedCategorySlugs : undefined,
+          tagSlug:       debouncedTagSlug || undefined,
+          dateFrom:      dateRange.from || undefined,
+          dateTo:        dateRange.to || undefined,
+          readingTime:   readingTimeParam,
         }),
         { signal: filterAbortRef.current.signal }
       );
 
       if (!res.ok) throw new Error("Failed");
       const data: ApiResponse = await res.json();
-
       applyResponse(data, debouncedSearch.length >= 2 ? debouncedSearch : undefined);
     } catch (err: any) {
       if (err.name === "AbortError") return;
@@ -349,53 +330,48 @@ export default function NewsPage() {
   }, [
     currentPage,
     debouncedSearch,
-    selectedCategorySlug,
+    selectedCategorySlugs,
     debouncedTagSlug,
     selectedReadingTimes,
     dateRange,
     applyResponse,
-    haveFiltersChanged
+    haveFiltersChanged,
   ]);
 
-  // ── Trigger fetch when filters change ────────────────────────────────────
+  // ── Trigger fetch when filters change ─────────────────────────────────────
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
 
-    // Don't fetch if no filters are active (except page 1)
-    const hasActiveFilters = 
-      selectedCategorySlug || 
-      debouncedTagSlug || 
+    const hasActiveFilters =
+      selectedCategorySlugs.length > 0 ||
+      debouncedTagSlug ||
       selectedReadingTimes.length > 0 ||
-      dateRange.from || 
-      dateRange.to || 
+      dateRange.from ||
+      dateRange.to ||
       debouncedSearch.length >= 2;
 
-    if (!hasActiveFilters && currentPage === 1) {
-      return;
-    }
+    if (!hasActiveFilters && currentPage === 1) return;
 
     fetchFilteredNews();
-    
+
     return () => {
-      if (filterAbortRef.current) {
-        filterAbortRef.current.abort();
-      }
+      if (filterAbortRef.current) filterAbortRef.current.abort();
     };
   }, [
     currentPage,
     debouncedSearch,
-    selectedCategorySlug,
+    selectedCategorySlugs,
     debouncedTagSlug,
     selectedReadingTimes,
     dateRange.from,
     dateRange.to,
-    fetchFilteredNews
+    fetchFilteredNews,
   ]);
 
-  // ── Clear suggestions when search is cleared ──────────────────────────────
+  // ── Clear suggestions when search cleared ─────────────────────────────────
   useEffect(() => {
     if (debouncedSearch.length < 2) {
       setSearchSuggestions([]);
@@ -423,17 +399,17 @@ export default function NewsPage() {
     if (range === "custom") { setShowCustomDatePicker(true); return; }
     setShowCustomDatePicker(false);
     if (!range) { setDateRange({ from: "", to: "" }); return; }
-    
-    switch(range) {
-      case "24h": from.setDate(now.getDate() - 1); break;
-      case "week": from.setDate(now.getDate() - 7); break;
-      case "month": from.setMonth(now.getMonth() - 1); break;
-      case "3months": from.setMonth(now.getMonth() - 3); break;
+
+    switch (range) {
+      case "24h":     from.setDate(now.getDate() - 1);    break;
+      case "week":    from.setDate(now.getDate() - 7);    break;
+      case "month":   from.setMonth(now.getMonth() - 1);  break;
+      case "3months": from.setMonth(now.getMonth() - 3);  break;
     }
-    
-    setDateRange({ 
-      from: from.toISOString().split("T")[0], 
-      to: now.toISOString().split("T")[0] 
+
+    setDateRange({
+      from: from.toISOString().split("T")[0],
+      to:   now.toISOString().split("T")[0],
     });
     setCurrentPage(1);
   };
@@ -450,7 +426,7 @@ export default function NewsPage() {
 
   // ── Filter helpers ────────────────────────────────────────────────────────
   const clearAllFilters = () => {
-    setSelectedCategorySlug("");
+    setSelectedCategorySlugs([]);
     setTagInput("");
     setSelectedReadingTimes([]);
     setDateRange({ from: "", to: "" });
@@ -464,11 +440,11 @@ export default function NewsPage() {
   };
 
   const isAnyFilterActive = () =>
-    !!selectedCategorySlug || !!tagInput || selectedReadingTimes.length > 0 ||
+    selectedCategorySlugs.length > 0 || !!tagInput || selectedReadingTimes.length > 0 ||
     !!dateRange.from || !!dateRange.to || !!searchQuery;
 
   const activeFilterCount = [
-    !!selectedCategorySlug,
+    selectedCategorySlugs.length > 0,
     !!tagInput,
     selectedReadingTimes.length > 0,
     !!(dateRange.from || dateRange.to),
@@ -480,9 +456,14 @@ export default function NewsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const selectedCategory = categories.find((c) => c.slug === selectedCategorySlug);
+  // ── Derived values ────────────────────────────────────────────────────────
+  const selectedCategoryNames = selectedCategorySlugs
+    .map((slug) => categories.find((c) => c.slug === slug)?.name)
+    .filter(Boolean)
+    .join(", ");
+
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
+  const endIndex   = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
 
   // ── Loading screen ────────────────────────────────────────────────────────
   if (isInitialLoading) {
@@ -678,7 +659,7 @@ export default function NewsPage() {
               <ScrollReveal direction="right" delay={0.2}>
                 <div>
                   <AnimatedText as="h2" delay={0.1}>
-                    {selectedCategory ? selectedCategory.name : "All News Articles"}
+                    {selectedCategoryNames || "All News Articles"}
                     {debouncedSearch.length >= 2 && (
                       <span className="text-lg sm:text-xl text-primary"> — Search: {debouncedSearch}</span>
                     )}
@@ -729,9 +710,9 @@ export default function NewsPage() {
                     </form>
                     <SearchSuggestions
                       suggestions={searchSuggestions}
-                      onSelect={(title) => { 
-                        setSearchQuery(title); 
-                        setShowSuggestions(false); 
+                      onSelect={(title) => {
+                        setSearchQuery(title);
+                        setShowSuggestions(false);
                       }}
                       searchQuery={debouncedSearch}
                       isVisible={showSuggestions}
@@ -740,10 +721,15 @@ export default function NewsPage() {
                   </div>
 
                   {/* FILTER */}
+                  {/*
+                    FIX: The wrapper is full-width on mobile (w-full) so the dropdown
+                    can use left-0 on mobile without clipping. On sm+ it shrinks to
+                    the button width and the dropdown anchors right-0.
+                  */}
                   <div className="relative w-full sm:w-auto" ref={filterRef}>
                     <Button
                       variant="outline"
-                      className="w-full xs:w-auto flex items-center justify-center gap-2"
+                      className="w-full sm:w-auto flex items-center justify-center gap-2"
                       onClick={() => setIsFilterOpen((v) => !v)}>
                       <SlidersHorizontal className="h-4 w-4" />
                       Filters
@@ -756,43 +742,51 @@ export default function NewsPage() {
 
                     {isFilterOpen && (
                       <motion.div
-                        initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}
-className="
-absolute
-top-[calc(100%+8px)]
-left-0
-right-0
-mx-auto
-w-full
-sm:w-96
-max-w-[92vw]
-bg-white border border-border
-rounded-2xl shadow-2xl
-z-[9999]
-max-h-[75vh] overflow-y-auto
-p-4
-">
-
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="
+                          absolute
+                          top-[calc(100%+8px)]
+                          left-0 sm:left-auto sm:right-0
+                          w-[calc(100vw-2rem)] sm:w-96
+                          bg-white border border-border
+                          rounded-2xl shadow-2xl
+                          z-[9999]
+                          max-h-[75vh] overflow-y-auto
+                          p-4
+                        "
+                      >
                         <div className="flex items-center justify-between mb-4">
                           <h4 className="text-lg font-semibold text-foreground">Filter Articles</h4>
+                          <button
+                            onClick={() => setIsFilterOpen(false)}
+                            className="p-1 rounded-lg hover:bg-secondary transition-colors">
+                            <X className="h-4 w-4 text-muted-foreground" />
+                          </button>
                         </div>
 
-                        {/* Category */}
+                        {/* Category — multi-select */}
                         <div className="mb-4">
                           <h5 className="text-sm font-medium text-foreground mb-2">Category</h5>
                           <MultiSelectDropdown
                             label="Categories"
                             icon={<CalendarDays className="h-4 w-4" />}
                             options={categories.map((c) => c.name)}
-                            selectedValues={selectedCategory ? [selectedCategory.name] : []}
+                            selectedValues={
+                              selectedCategorySlugs
+                                .map((slug) => categories.find((c) => c.slug === slug)?.name)
+                                .filter(Boolean) as string[]
+                            }
                             onChange={(vals) => {
-                              const name = vals[vals.length - 1];
-                              const cat  = categories.find((c) => c.name === name);
-                              setSelectedCategorySlug(cat?.slug ?? "");
+                              const slugs = vals
+                                .map((name) => categories.find((c) => c.name === name)?.slug)
+                                .filter(Boolean) as string[];
+                              setSelectedCategorySlugs(slugs);
                               setCurrentPage(1);
                             }}
-                            placeholder="Select category"
+                            placeholder="Select categories"
                             allOptionLabel="All Categories"
                           />
                         </div>
@@ -808,7 +802,6 @@ p-4
                             onChange={(e) => setTagInput(e.target.value)}
                             className="w-full"
                           />
-                          
                         </div>
 
                         {/* Reading Time */}
@@ -897,12 +890,22 @@ p-4
                               </button>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              {selectedCategory && (
-                                <Chip color="primary" icon={<CalendarDays className="h-3 w-3" />}
-                                  onRemove={() => { setSelectedCategorySlug(""); setCurrentPage(1); }}>
-                                  {selectedCategory.name}
-                                </Chip>
-                              )}
+                              {/* Multi-category chips — one chip per selected category */}
+                              {selectedCategorySlugs.map((slug) => {
+                                const cat = categories.find((c) => c.slug === slug);
+                                return cat ? (
+                                  <Chip
+                                    key={slug}
+                                    color="primary"
+                                    icon={<CalendarDays className="h-3 w-3" />}
+                                    onRemove={() => {
+                                      setSelectedCategorySlugs((prev) => prev.filter((s) => s !== slug));
+                                      setCurrentPage(1);
+                                    }}>
+                                    {cat.name}
+                                  </Chip>
+                                ) : null;
+                              })}
                               {tagInput && (
                                 <Chip color="purple" icon={<Tag className="h-3 w-3" />}
                                   onRemove={() => { setTagInput(""); setCurrentPage(1); }}>
@@ -935,6 +938,7 @@ p-4
                       </motion.div>
                     )}
                   </div>
+
                 </div>
               </ScrollReveal>
             </div>

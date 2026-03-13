@@ -9,13 +9,9 @@ import {
 } from "@/db/schema";
 import { and, eq, ilike, or, gte, lte, desc, count, inArray, sql } from "drizzle-orm";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 type ContentType =
   | "BLOG" | "NEWS" | "ENTRECHAT" | "EVENT"
   | "PRESS" | "SUCCESS_STORY" | "RESOURCE";
-
-// ─── In-memory meta cache ─────────────────────────────────────────────────────
 
 type MetaEntry = {
   categories: { id: string; name: string; slug: string }[];
@@ -24,15 +20,12 @@ type MetaEntry = {
 };
 
 const metaCache = new Map<string, MetaEntry>();
-const META_TTL  = 10 * 60 * 1000; // 10 minutes
+const META_TTL  = 10 * 60 * 1000;
 
 function getMetaFromCache(key: string): MetaEntry | null {
   const entry = metaCache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.cachedAt > META_TTL) {
-    metaCache.delete(key);
-    return null;
-  }
+  if (Date.now() - entry.cachedAt > META_TTL) { metaCache.delete(key); return null; }
   return entry;
 }
 
@@ -41,7 +34,12 @@ async function fetchMeta(contentType: ContentType): Promise<MetaEntry> {
     db
       .select({ id: CategoriesTable.id, name: CategoriesTable.name, slug: CategoriesTable.slug })
       .from(CategoriesTable)
-      .where(and(eq(CategoriesTable.contentType, contentType), eq(CategoriesTable.isActive, true)))
+      .where(
+        and(
+          eq(CategoriesTable.contentType, contentType),
+          eq(CategoriesTable.isActive, true)   // ← only active categories
+        )
+      )
       .orderBy(CategoriesTable.name),
 
     db
@@ -69,20 +67,15 @@ async function fetchMeta(contentType: ContentType): Promise<MetaEntry> {
   return entry;
 }
 
-// ─── Cache headers ────────────────────────────────────────────────────────────
-
 const CONTENT_HEADERS     = { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" };
 const META_HEADERS        = { "Cache-Control": "public, s-maxage=600, stale-while-revalidate=3600" };
 const SUGGESTIONS_HEADERS = { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120" };
-
-// ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const contentType = (searchParams.get("contentType") ?? "BLOG") as ContentType;
 
-    // ── ?meta=1 ───────────────────────────────────────────────────────────────
     if (searchParams.get("meta") === "1") {
       const meta = getMetaFromCache(contentType) ?? await fetchMeta(contentType);
       return NextResponse.json(
@@ -91,30 +84,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // ── ?suggestions=1 ───────────────────────────────────────────────────────
-    //
-    // Kept for backward compatibility and for cases where you need deep search
-    // across ALL ~1900 rows (not just the current page).
-    //
-    // The main paginated endpoint now also returns `suggestionCandidates` when
-    // a `search` param is present, so the client can skip this extra request
-    // for most use cases.
-    //
-    // Usage: GET /api/content?contentType=BLOG&suggestions=1&q=entrepreneur
     if (searchParams.get("suggestions") === "1") {
       const q = searchParams.get("q")?.trim() ?? "";
-
-      if (q.length < 2) {
-        return NextResponse.json({ results: [] }, { headers: SUGGESTIONS_HEADERS });
-      }
+      if (q.length < 2) return NextResponse.json({ results: [] }, { headers: SUGGESTIONS_HEADERS });
 
       const rows = await db
         .select({
-          id:           ContentTable.id,
-          title:        ContentTable.title,
-          slug:         ContentTable.slug,
-          publishedAt:  ContentTable.publishedAt,
-          authorName:   ContentTable.authorName,
+          id: ContentTable.id, title: ContentTable.title, slug: ContentTable.slug,
+          publishedAt: ContentTable.publishedAt, authorName: ContentTable.authorName,
           categoryName: CategoriesTable.name,
         })
         .from(ContentTable)
@@ -123,27 +100,26 @@ export async function GET(req: NextRequest) {
           and(
             eq(ContentTable.contentType, contentType),
             eq(ContentTable.status, "PUBLISHED"),
-            or(
-              ilike(ContentTable.title,      `%${q}%`),
-              ilike(ContentTable.authorName, `%${q}%`)
-            )
+            or(ilike(ContentTable.title, `%${q}%`), ilike(ContentTable.authorName, `%${q}%`))
           )
         )
         .orderBy(desc(ContentTable.publishedAt))
-        .limit(50); // fetch 50 candidates, ranked to top 8 client-side
+        .limit(50);
 
       return NextResponse.json({ results: rows }, { headers: SUGGESTIONS_HEADERS });
     }
 
-    // ── Paginated content list (default) ─────────────────────────────────────
-    const page         = Math.max(1, parseInt(searchParams.get("page")     ?? "1"));
-    const limit        = Math.min(100, parseInt(searchParams.get("limit")  ?? "12"));
-    const offset       = (page - 1) * limit;
-    const search       = searchParams.get("search")?.trim()   ?? "";
-    const categorySlug = searchParams.get("category")?.trim() ?? "";
-    const tagSlug      = searchParams.get("tag")?.trim()      ?? "";
-    const dateFrom     = searchParams.get("dateFrom")         ?? "";
-    const dateTo       = searchParams.get("dateTo")           ?? "";
+    const page          = Math.max(1, parseInt(searchParams.get("page")    ?? "1"));
+    const limit         = Math.min(100, parseInt(searchParams.get("limit") ?? "12"));
+    const offset        = (page - 1) * limit;
+    const search        = searchParams.get("search")?.trim()   ?? "";
+    const categoryParam = searchParams.get("category")?.trim() ?? "";
+    const categorySlugs = categoryParam
+      ? categoryParam.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+    const tagSlug  = searchParams.get("tag")?.trim()  ?? "";
+    const dateFrom = searchParams.get("dateFrom")     ?? "";
+    const dateTo   = searchParams.get("dateTo")       ?? "";
 
     const conditions = [
       eq(ContentTable.contentType, contentType),
@@ -158,13 +134,24 @@ export async function GET(req: NextRequest) {
       conditions.push(lte(ContentTable.publishedAt, to));
     }
 
-    if (categorySlug) {
+    // Category filter — only matches ACTIVE categories
+    if (categorySlugs.length === 1) {
       conditions.push(
         sql`${ContentTable.categoryId} = (
           SELECT id FROM categories
-          WHERE slug        = ${categorySlug}
+          WHERE slug = ${categorySlugs[0]}
             AND content_type = ${contentType}
+            AND is_active = true
           LIMIT 1
+        )`
+      );
+    } else if (categorySlugs.length > 1) {
+      conditions.push(
+        sql`${ContentTable.categoryId} IN (
+          SELECT id FROM categories
+          WHERE slug = ANY(ARRAY[${sql.join(categorySlugs.map((s) => sql`${s}`), sql`, `)}])
+            AND content_type = ${contentType}
+            AND is_active = true
         )`
       );
     }
@@ -184,17 +171,11 @@ export async function GET(req: NextRequest) {
     const [rows, [{ total }]] = await Promise.all([
       db
         .select({
-          id:           ContentTable.id,
-          title:        ContentTable.title,
-          slug:         ContentTable.slug,
-          summary:      ContentTable.summary,
-          featuredImage:ContentTable.featuredImage,
-          externalUrl:  ContentTable.externalUrl,
-          readingTime:  ContentTable.readingTime,
-          publishedAt:  ContentTable.publishedAt,
-          authorName:   ContentTable.authorName,
-          categoryId:   ContentTable.categoryId,
-          categoryName: CategoriesTable.name,
+          id: ContentTable.id, title: ContentTable.title, slug: ContentTable.slug,
+          summary: ContentTable.summary, featuredImage: ContentTable.featuredImage,
+          externalUrl: ContentTable.externalUrl, readingTime: ContentTable.readingTime,
+          publishedAt: ContentTable.publishedAt, authorName: ContentTable.authorName,
+          categoryId: ContentTable.categoryId, categoryName: CategoriesTable.name,
           categorySlug: CategoriesTable.slug,
         })
         .from(ContentTable)
@@ -213,9 +194,7 @@ export async function GET(req: NextRequest) {
       ? db
           .select({
             contentId: ContentTagsTable.contentId,
-            tagId:     TagsTable.id,
-            tagName:   TagsTable.name,
-            tagSlug:   TagsTable.slug,
+            tagId: TagsTable.id, tagName: TagsTable.name, tagSlug: TagsTable.slug,
           })
           .from(ContentTagsTable)
           .innerJoin(TagsTable, eq(ContentTagsTable.tagId, TagsTable.id))
@@ -235,34 +214,23 @@ export async function GET(req: NextRequest) {
 
     const totalItems = Number(total);
 
-    // ── Build suggestion candidates from current page rows ────────────────────
-    //
-    // When a search query is present, include the matched rows as slim suggestion
-    // candidates so the client can populate the dropdown without a second request.
-    //
-    // NOTE: These are limited to the current page (up to `limit` rows). If you
-    // need suggestions from ALL rows across all pages, use ?suggestions=1 instead.
     const suggestionCandidates = search
       ? rows.map((r) => ({
-          id:          r.id,
-          title:       r.title,
-          slug:        r.slug,
-          publishedAt: r.publishedAt,
-          authorName:  r.authorName,
-          categoryName: r.categoryName,
+          id: r.id, title: r.title, slug: r.slug,
+          publishedAt: r.publishedAt, authorName: r.authorName, categoryName: r.categoryName,
         }))
       : [];
 
     return NextResponse.json(
       {
-        items:                rows.map((r) => ({ ...r, tags: tagMap[r.id] ?? [] })),
+        items:               rows.map((r) => ({ ...r, tags: tagMap[r.id] ?? [] })),
         totalItems,
-        totalPages:           Math.ceil(totalItems / limit),
+        totalPages:          Math.ceil(totalItems / limit),
         page,
         limit,
-        categories:           meta.categories,
-        readingTimes:         meta.readingTimes,
-        suggestionCandidates,              // ← new: slim candidates for dropdown
+        categories:          meta.categories,
+        readingTimes:        meta.readingTimes,
+        suggestionCandidates,
       },
       { headers: CONTENT_HEADERS }
     );

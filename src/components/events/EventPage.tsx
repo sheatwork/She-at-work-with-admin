@@ -2,21 +2,22 @@
 
 import { AnimatedText, ScrollFade } from "@/components/common/ScrollFade";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { openEventRegistrationEmail } from "@/hooks/Emailutils";
 import { AnimatePresence, motion, Variants } from "framer-motion";
 import {
   ArrowRight,
   Calendar,
-  Clock,
-  Filter,
   IndianRupee,
   Mail,
+  Search,
+  SlidersHorizontal,
   Users,
-  X,
+  X
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Cta from "../common/Cta";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -67,23 +68,16 @@ interface ProcessedEvent {
   postDate: string;
 }
 
-// ─── Event categories ─────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const eventCategories = [
-  "All Events",
-  "Conferences",
-  "Workshops",
-  "Webinars",
-  "Networking",
-  "Seminars",
-  "Forums",
-  "Launches",
-  "Awards",
-  "Festivals",
-  "Other Events",
+const ITEMS_PER_PAGE  = 12;
+const SEARCH_DEBOUNCE = 500;
+
+const eventCategoryNames = [
+  "Conferences", "Workshops", "Webinars", "Networking",
+  "Seminars", "Forums", "Launches", "Awards", "Festivals", "Other Events",
 ];
 
-// ✅ FIX #7: explicit slug map so "Other Events" → "other-events" matches DB exactly
 const categorySlugMap: Record<string, string> = {
   "Conferences":  "conferences",
   "Workshops":    "workshops",
@@ -96,6 +90,14 @@ const categorySlugMap: Record<string, string> = {
   "Festivals":    "festivals",
   "Other Events": "other-events",
 };
+
+const predefinedDateRanges = [
+  { label: "Last 24h",   value: "24h" },
+  { label: "This Week",  value: "week" },
+  { label: "This Month", value: "month" },
+  { label: "3 Months",   value: "3months" },
+  { label: "Custom",     value: "custom" },
+];
 
 // ─── Animation variants ───────────────────────────────────────────────────────
 
@@ -129,6 +131,28 @@ const bannerSubtitleVariants: Variants = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState<T>(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+function buildPageNumbers(current: number, total: number, compact = false): (number | "…")[] {
+  if (compact) {
+    if (total <= 3) return Array.from({ length: total }, (_, i) => i + 1);
+    if (current === 1)     return [1, 2, "…", total];
+    if (current === total) return [1, "…", total - 1, total];
+    return [1, "…", current, "…", total];
+  }
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  if (current <= 4)         return [1, 2, 3, 4, 5, "…", total];
+  if (current >= total - 3) return [1, "…", total - 4, total - 3, total - 2, total - 1, total];
+  return [1, "…", current - 1, current, current + 1, "…", total];
+}
 
 const getCategoryFromContent = (content: string): string => {
   const c = content.toLowerCase();
@@ -168,13 +192,10 @@ const extractLocation = (content: string): string => {
   return "Location TBD";
 };
 
-// ✅ FIX #4: check for date ranges before single dates
 const extractDateDetails = (content: string, fallback: string): { date: string; time?: string } => {
-  // Multi-day range first: "15th March to 17th March 2024" style
   const rangePattern = /(\d+(?:st|nd|rd|th)?\s+[A-Z][a-z]+(?:\s+to\s+\d+(?:st|nd|rd|th)?\s+[A-Z][a-z]+)?\s+\d{4})/gi;
   const rangeMatch = rangePattern.exec(content);
   if (rangeMatch?.[1]) return { date: rangeMatch[1].trim() };
-
   const datePatterns = [
     /(\d+(?:st|nd|rd|th)?\s+[A-Z][a-z]+\s+\d{4})/gi,
     /([A-Z][a-z]+\s+\d+(?:\s*,\s*\d{4})?)/gi,
@@ -257,8 +278,7 @@ const transformApiItem = (item: ApiContentItem, index: number): ProcessedEvent =
   const postDate = item.publishedAt ?? new Date().toISOString();
   const { date, time } = extractDateDetails(rawContent, postDate);
   const { month, day } = parseDateForDisplay(date, postDate);
-  const image = item.featuredImage && item.featuredImage.trim() !== "" ? item.featuredImage : "/placeholder-event.jpg";
-
+  const image = item.featuredImage && item.featuredImage.trim() !== "" ? item.featuredImage : "";
   return {
     id: item.id, category, title, description, date, time,
     location, format, price, image,
@@ -269,96 +289,126 @@ const transformApiItem = (item: ApiContentItem, index: number): ProcessedEvent =
   };
 };
 
-// ─── Pagination helper (same as NewsPage / BlogsPage) ─────────────────────────
-// ✅ FIX #8: replaces the broken 5-slot logic that broke at page 4 of 6
-
-function buildPageNumbers(current: number, total: number, compact = false): (number | "…")[] {
-  if (compact) {
-    if (total <= 3) return Array.from({ length: total }, (_, i) => i + 1);
-    if (current === 1)     return [1, 2, "…", total];
-    if (current === total) return [1, "…", total - 1, total];
-    return [1, "…", current, "…", total];
-  }
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  if (current <= 4)         return [1, 2, 3, 4, 5, "…", total];
-  if (current >= total - 3) return [1, "…", total - 4, total - 3, total - 2, total - 1, total];
-  return [1, "…", current - 1, current, current + 1, "…", total];
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const ITEMS_PER_PAGE = 12;
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function EventsPage() {
-  const [selectedCategory, setSelectedCategory] = useState("All Events");
-  const [showFilter, setShowFilter]             = useState(false);
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery]           = useState("");
+  const [dateRange, setDateRange]               = useState({ from: "", to: "" });
+  const [selectedDateRange, setSelectedDateRange] = useState("");
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
   const [currentPage, setCurrentPage]           = useState(1);
-  const [processedEvents, setProcessedEvents]   = useState<ProcessedEvent[]>([]);
-  const [isLoading, setIsLoading]               = useState(true);
+  const [isFilterOpen, setIsFilterOpen]         = useState(false);
+
+  const debouncedSearch = useDebounce(searchQuery, SEARCH_DEBOUNCE);
+
+  // ── Data state ────────────────────────────────────────────────────────────
+  const [processedEvents, setProcessedEvents] = useState<ProcessedEvent[]>([]);
+  const [featuredEvent, setFeaturedEvent]     = useState<ProcessedEvent | null>(null);
+  const [totalItems, setTotalItems]           = useState(0);
+  const [totalPages, setTotalPages]           = useState(0);
+
+  // ── Loading ───────────────────────────────────────────────────────────────
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isFilterLoading, setIsFilterLoading]   = useState(false);
   const [error, setError]                       = useState<string | null>(null);
-  const [totalItems, setTotalItems]             = useState(0);
-  const [totalPages, setTotalPages]             = useState(0);
 
-  // ✅ FIX #3: use Set instead of Record to avoid creating new object on every image load
+  // ── Image state ───────────────────────────────────────────────────────────
   const [imagesLoaded, setImagesLoaded] = useState<Set<string>>(new Set());
+  const [imageError, setImageError]     = useState<Set<string>>(new Set());
 
-  // ✅ FIX #5: separate imageError state so broken images fall back to placeholder
-  const [imageError, setImageError] = useState<Set<string>>(new Set());
-
+  // ── Refs ──────────────────────────────────────────────────────────────────
+  const filterRef      = useRef<HTMLDivElement>(null);
+  const filterAbortRef = useRef<AbortController | null>(null);
+  const isFirstRender  = useRef(true);
 
   const router = useRouter();
 
+  // ── URL builder ───────────────────────────────────────────────────────────
+  const buildUrl = useCallback((opts: {
+    page?: number; search?: string; categorySlugs?: string[];
+    dateFrom?: string; dateTo?: string;
+  }) => {
+    const p = new URLSearchParams({ contentType: "EVENT", limit: String(ITEMS_PER_PAGE) });
+    if (opts.page)                  p.set("page",     String(opts.page));
+    if (opts.search)                p.set("search",   opts.search);
+    if (opts.categorySlugs?.length) p.set("category", opts.categorySlugs.map(c => categorySlugMap[c] ?? c.toLowerCase()).join(","));
+    if (opts.dateFrom)              p.set("dateFrom", opts.dateFrom);
+    if (opts.dateTo)                p.set("dateTo",   opts.dateTo);
+    return `/api/content?${p}`;
+  }, []);
 
-  // ── Fetch from API whenever page or category changes ──────────────────────
+  // ── On mount: initial fetch ───────────────────────────────────────────────
   useEffect(() => {
-    const fetchEvents = async () => {
+    (async () => {
       try {
-        setIsLoading(true);
-        setError(null);
-
-        const params = new URLSearchParams({
-          contentType: "EVENT",
-          page:        String(currentPage),
-          limit:       String(ITEMS_PER_PAGE),
-        });
-
-        // ✅ FIX #7: use explicit slug map instead of naive .replace(/\s+/g, "-")
-        if (selectedCategory !== "All Events") {
-          params.set("category", categorySlugMap[selectedCategory] ?? selectedCategory.toLowerCase());
-        }
-
-        const res = await fetch(`/api/content?${params.toString()}`);
+        const res = await fetch(buildUrl({ page: 1 }));
         if (!res.ok) throw new Error(`API error: ${res.status}`);
-
         const data: ApiResponse = await res.json();
-        const processed = data.items.map((item, idx) =>
-          transformApiItem(item, (currentPage - 1) * ITEMS_PER_PAGE + idx)
-        );
-
-        setProcessedEvents(processed);
+        const processed = data.items.map((item, idx) => transformApiItem(item, idx));
+        setFeaturedEvent(processed[0] ?? null); // pinned — never overwritten by filters
+        setProcessedEvents(processed.slice(1)); // grid = rest of initial items
         setTotalItems(data.totalItems);
         setTotalPages(data.totalPages);
       } catch (err) {
-        console.error("Failed to fetch events:", err);
+        console.error("Init fetch error:", err);
         setError("Failed to load events. Please try again.");
-        setProcessedEvents([]);
       } finally {
-        setIsLoading(false);
+        setIsInitialLoading(false);
       }
-    };
+    })();
+  }, [buildUrl]);
+// ── Filter fetch (no full-page reload) ───────────────────────────────────
+const fetchFilteredEvents = useCallback(async () => {
+  if (filterAbortRef.current) filterAbortRef.current.abort();
+  filterAbortRef.current = new AbortController();
+  setIsFilterLoading(true);
+  setError(null);
 
-    fetchEvents();
-  }, [currentPage, selectedCategory]);
+  try {
+    const res = await fetch(
+      buildUrl({
+        page:          currentPage,
+        search:        debouncedSearch || undefined,
+        categorySlugs: selectedCategories.length ? selectedCategories : undefined,
+        dateFrom:      dateRange.from || undefined,
+        dateTo:        dateRange.to   || undefined,
+      }),
+      { signal: filterAbortRef.current.signal }
+    );
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const data: ApiResponse = await res.json();
+    const processed = data.items.map((item, idx) =>
+      transformApiItem(item, (currentPage - 1) * ITEMS_PER_PAGE + idx)
+    );
+    setProcessedEvents(processed); // all filtered results go to grid
+    setTotalPages(data.totalPages);
+    setTotalItems(data.totalItems); // ← ADD THIS LINE to update total items count
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") return;
+    console.error("Filter fetch error:", err);
+    setProcessedEvents([]);
+  } finally {
+    setIsFilterLoading(false);
+  }
+}, [buildUrl, currentPage, debouncedSearch, selectedCategories, dateRange]);
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    fetchFilteredEvents();
+  }, [fetchFilteredEvents]);
+
+  // ── Click-outside for filter panel ───────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node))
+        setIsFilterOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-  const handleCategoryChange = (cat: string) => {
-    setSelectedCategory(cat);
-    setCurrentPage(1);
-    setShowFilter(false);
-  };
-
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -369,72 +419,96 @@ export default function EventsPage() {
   const handleContactClick = (event: ProcessedEvent, e: React.MouseEvent) => {
     e.stopPropagation();
     openEventRegistrationEmail({
-      title:    event.title,
-      date:     event.date,
-      time:     event.time,
-      location: event.location,
-      format:   event.format,
-      price:    event.price,
-      category: event.category,
+      title: event.title, date: event.date, time: event.time,
+      location: event.location, format: event.format,
+      price: event.price, category: event.category,
     });
   };
 
-  // ✅ FIX #3: Set-based image load tracking
-  const handleImageLoad = (id: string) =>
-    setImagesLoaded((prev) => { const s = new Set(prev); s.add(id); return s; });
+  const handleImageLoad  = (id: string) => setImagesLoaded((prev) => { const s = new Set(prev); s.add(id); return s; });
+  const handleImageError = (id: string) => setImageError((prev)   => { const s = new Set(prev); s.add(id); return s; });
 
-  // ✅ FIX #5: Set-based image error tracking → fall back to placeholder
-  const handleImageError = (id: string) =>
-    setImageError((prev) => { const s = new Set(prev); s.add(id); return s; });
+  const applyDateRangeFilter = (range: string) => {
+    const now = new Date(); const from = new Date();
+    setSelectedDateRange(range);
+    if (range === "custom") { setShowCustomDatePicker(true); return; }
+    setShowCustomDatePicker(false);
+    if (!range) { setDateRange({ from: "", to: "" }); return; }
+    const offsets: Record<string, () => void> = {
+      "24h":     () => from.setDate(now.getDate() - 1),
+      "week":    () => from.setDate(now.getDate() - 7),
+      "month":   () => from.setMonth(now.getMonth() - 1),
+      "3months": () => from.setMonth(now.getMonth() - 3),
+    };
+    offsets[range]?.();
+    setDateRange({ from: from.toISOString().split("T")[0], to: now.toISOString().split("T")[0] });
+    setCurrentPage(1);
+  };
 
-  // ✅ FIX #2: featured event is always the first item of the current result set,
-  //           not conditionally only on page 1 — it persists across pages.
-  const featuredEvent = processedEvents.length > 0 ? processedEvents[0] : null;
-  const gridEvents    = processedEvents.slice(1); // remaining cards below featured
+  const getDateRangeDisplayLabel = () => {
+    if (selectedDateRange === "custom") {
+      const parts: string[] = [];
+      if (dateRange.from) parts.push(`From: ${new Date(dateRange.from).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`);
+      if (dateRange.to)   parts.push(`To: ${new Date(dateRange.to).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`);
+      return parts.join(" • ") || "Custom Range";
+    }
+    return predefinedDateRanges.find((r) => r.value === selectedDateRange)?.label ?? "";
+  };
 
+  const clearAllFilters = () => {
+    setSelectedCategories([]);
+    setSearchQuery("");
+    setDateRange({ from: "", to: "" });
+    setSelectedDateRange("");
+    setShowCustomDatePicker(false);
+    setCurrentPage(1);
+    setIsFilterOpen(false);
+  };
+
+  const isAnyFilterActive = () => selectedCategories.length > 0 || !!searchQuery || !!dateRange.from || !!dateRange.to;
+
+  const activeFilterCount = [selectedCategories.length > 0, !!searchQuery, !!(dateRange.from || dateRange.to)].filter(Boolean).length;
+
+  const gridEvents = processedEvents; // all filtered results, no slicing
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE + 1;
   const endIndex   = Math.min(currentPage * ITEMS_PER_PAGE, totalItems);
 
   // ── Loading ───────────────────────────────────────────────────────────────
-  if (isLoading) {
-    return (
-      <main className="bg-background min-h-screen">
-        <div className="flex items-center justify-center py-20">
-          <div className="text-center">
-            <div className="w-16 h-16 mx-auto mb-4 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-            <p className="text-muted-foreground">Loading new events…</p>
-          </div>
+  if (isInitialLoading) return (
+    <main className="bg-background min-h-screen">
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <p className="text-muted-foreground">Loading events…</p>
         </div>
-      </main>
-    );
-  }
+      </div>
+    </main>
+  );
 
-  // ── Error ─────────────────────────────────────────────────────────────────
-  if (error) {
-    return (
-      <main className="bg-background min-h-screen flex items-center justify-center">
-        <div className="text-center py-20">
-          <Calendar className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-          <h2 className="text-xl font-bold text-foreground mb-2">Something went wrong</h2>
-          <p className="text-muted-foreground mb-6">{error}</p>
-          <Button onClick={() => window.location.reload()}>Try Again</Button>
-        </div>
-      </main>
-    );
-  }
+  if (error && !processedEvents.length) return (
+    <main className="bg-background min-h-screen flex items-center justify-center">
+      <div className="text-center py-20">
+        <Calendar className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+        <h2 className="text-xl font-bold text-foreground mb-2">Something went wrong</h2>
+        <p className="text-muted-foreground mb-6">{error}</p>
+        <Button onClick={() => window.location.reload()}>Try Again</Button>
+      </div>
+    </main>
+  );
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <main className="bg-background min-h-screen flex flex-col">
 
-      {/* ── Banner ─────────────────────────────────────────────────────────── */}
+      {/* ── Banner (unchanged) ──────────────────────────────────────────────── */}
       <section className="relative h-[480px] md:h-[600px] lg:h-[470px] overflow-hidden pt-24">
         <div className="absolute inset-0" style={{ top: 96 }}>
           <div className="block lg:hidden relative w-full h-full">
-            <Image src="/events/Mobile-Events.png" alt="News Banner" fill
+            <Image src="/events/Mobile-Events.png" alt="Events Banner" fill
               className="object-cover object-center" priority sizes="(max-width: 1024px) 100vw" />
           </div>
           <div className="hidden lg:block relative w-full h-full">
-            <Image src="/events/FinalEventsbanner.png" alt="News Banner" fill
+            <Image src="/events/FinalEventsbanner.png" alt="Events Banner" fill
               className="object-cover object-center" priority sizes="(min-width: 1024px) 100vw" />
           </div>
         </div>
@@ -456,7 +530,7 @@ export default function EventsPage() {
         </div>
       </section>
 
-      {/* ── Featured Event ──────────────────────────────────────────────────── */}
+      {/* ── Featured Event (unchanged) ──────────────────────────────────────── */}
       {featuredEvent && (
         <ScrollFade>
           <section className="px-4 sm:px-6 lg:px-8 py-8 flex-1">
@@ -465,21 +539,31 @@ export default function EventsPage() {
                 className="grid lg:grid-cols-[65%_35%] bg-card rounded-xl sm:rounded-2xl lg:rounded-3xl overflow-hidden shadow-lg sm:shadow-xl lg:shadow-2xl border border-primary/10 hover:shadow-2xl transition-shadow duration-300">
 
                 <motion.div variants={fadeInLeft} className="relative min-h-48 sm:min-h-64 overflow-hidden bg-gradient-to-br from-muted to-secondary">
-                  {!imagesLoaded.has(featuredEvent.id) && (
-                    <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+                  {featuredEvent.image && !imageError.has(featuredEvent.id) ? (
+                    <>
+                      {!imagesLoaded.has(featuredEvent.id) && (
+                        <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+                      )}
+                      <motion.div whileHover={{ scale: 1.05 }} transition={{ duration: 0.3 }} className="w-full h-full">
+                        <Image
+                          src={featuredEvent.image}
+                          alt={featuredEvent.title}
+                          fill
+                          className={`md:object-contain object-cover transition-opacity duration-500 ${imagesLoaded.has(featuredEvent.id) ? "opacity-100" : "opacity-0"}`}
+                          priority
+                          onLoad={() => handleImageLoad(featuredEvent.id)}
+                          onError={() => handleImageError(featuredEvent.id)}
+                          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 65vw, 800px"
+                        />
+                      </motion.div>
+                    </>
+                  ) : (
+                    <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                      <span className="text-7xl font-bold text-primary/30">
+                        {featuredEvent.title.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
                   )}
-                  <motion.div whileHover={{ scale: 1.05 }} transition={{ duration: 0.3 }} className="w-full h-full">
-                    <Image
-                      src={imageError.has(featuredEvent.id) ? "/placeholder-event.jpg" : featuredEvent.image}
-                      alt={featuredEvent.title}
-                      fill
-                      className={`md:object-contain object-cover transition-opacity duration-500 ${imagesLoaded.has(featuredEvent.id) ? "opacity-100" : "opacity-0"}`}
-                      priority
-                      onLoad={() => handleImageLoad(featuredEvent.id)}
-                      onError={() => handleImageError(featuredEvent.id)}
-                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 65vw, 800px"
-                    />
-                  </motion.div>
                 </motion.div>
 
                 <motion.div variants={fadeInRight} className="p-4 flex flex-col justify-center">
@@ -528,318 +612,383 @@ export default function EventsPage() {
         </ScrollFade>
       )}
 
-      {/* ── Events Grid + Sidebar ───────────────────────────────────────────── */}
-      <section className="px-4 sm:px-6 lg:px-8 py-12 sm:py-16 lg:py-20 bg-secondary/30 flex-1">
-        <div className="max-w-screen-xl mx-auto">
-          <div className="grid lg:grid-cols-3 gap-6 sm:gap-8">
+      {/* ── All Events Grid (no sidebar) ────────────────────────────────────── */}
+  {/* ── All Events Grid (no sidebar) ────────────────────────────────────── */}
+<section className="px-4 sm:px-6 lg:px-8 py-12 sm:py-16 lg:py-20 bg-secondary/30 flex-1">
+  <div className="max-w-screen-xl mx-auto">
 
-            {/* ── Main grid ─────────────────────────────────────────────────── */}
-            <div className="lg:col-span-2">
-              <ScrollFade>
-                <motion.div variants={fadeInUp} initial="hidden" whileInView="visible" viewport={{ once: false }}
-                  className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 sm:mb-12">
-                  <div>
-                    <h2 className="text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-display font-bold text-foreground mb-1 sm:mb-2">
-                      {selectedCategory === "All Events" ? "All Events" : selectedCategory}
-                    </h2>
-                    <p className="text-sm sm:text-base text-muted-foreground">
-                      {totalItems} {totalItems === 1 ? "event" : "events"} found
-                      {selectedCategory !== "All Events" && ` in ${selectedCategory}`}
-                    </p>
+    {/* Header + Search + Filter — matches BlogsPage layout */}
+    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8 sm:mb-12">
+      <div className="min-w-0">
+        <h2 className="text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-display font-bold text-foreground mb-1 sm:mb-2">
+          {selectedCategories.length > 0 ? selectedCategories.join(", ") : "All Events"}
+          {debouncedSearch && <span className="text-lg sm:text-xl text-primary"> — Search: {debouncedSearch}</span>}
+        </h2>
+        <p className="text-sm sm:text-base text-muted-foreground">
+          {isFilterLoading ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-block w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              Filtering…
+            </span>
+          ) : (
+            <>
+              {totalItems} {totalItems === 1 ? "event" : "events"} found
+              {selectedCategories.length > 0 && ` in ${selectedCategories.join(", ")}`}
+              {debouncedSearch && ` matching "${debouncedSearch}"`}
+              {getDateRangeDisplayLabel() && ` • ${getDateRangeDisplayLabel()}`}
+            </>
+          )}
+        </p>
+      </div>
+
+      {/* Controls - FIXED: Now stacks vertically on mobile, inline on desktop */}
+      <div className="flex-shrink-0 w-full lg:w-auto">
+        <div className="flex flex-col sm:flex-row lg:flex-row items-stretch sm:items-center gap-2 w-full">
+          
+          {/* Search - full width on mobile */}
+          <div className="relative flex-1 w-full sm:w-56 lg:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-black z-10" />
+            <Input
+              type="search"
+              placeholder="Search events…"
+              className="pl-10 pr-10 w-full bg-white"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+            />
+            {searchQuery && (
+              <button type="button" onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 z-10">
+                <X className="h-4 w-4 text-black" />
+              </button>
+            )}
+          </div>
+
+          {/* Filter button + dropdown - full width on mobile */}
+          <div className="relative w-full sm:w-auto" ref={filterRef}>
+            <Button 
+              variant="outline" 
+              className="w-full sm:w-auto flex items-center justify-center gap-2"
+              onClick={() => setIsFilterOpen((v) => !v)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filters
+              {isAnyFilterActive() && (
+                <span className="ml-1 inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary text-white text-xs">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+
+            <AnimatePresence>
+              {isFilterOpen && (
+                <motion.div
+                  key="events-filter-panel"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="
+                    absolute
+                    top-[calc(100%+8px)]
+                    left-0 sm:left-auto sm:right-0
+                    w-[calc(100vw-2rem)] sm:w-96
+                    bg-white border border-border
+                    rounded-2xl shadow-2xl
+                    z-[9999]
+                    max-h-[75vh] overflow-y-auto
+                    p-4
+                  "
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-semibold text-foreground">Filter Events</h4>
+                    <button onClick={() => setIsFilterOpen(false)}
+                      className="p-1 rounded-lg hover:bg-secondary transition-colors">
+                      <X className="h-4 w-4 text-muted-foreground" />
+                    </button>
                   </div>
 
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    {selectedCategory !== "All Events" && (
-                      <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                        <Button variant="outline" className="flex items-center gap-2 border-2 w-full sm:w-auto"
-                          onClick={() => handleCategoryChange("All Events")}>
-                          <X className="h-3 w-3 sm:h-4 sm:w-4" /> Clear Filter
-                        </Button>
+                  {/* Category */}
+                  <div className="mb-4">
+                    <h5 className="text-sm font-medium text-foreground mb-2">Category</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {eventCategoryNames.map((cat) => (
+                        <button key={cat}
+                          onClick={() => {
+                            setSelectedCategories((prev) =>
+                              prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+                            );
+                            setCurrentPage(1);
+                          }}
+                          className={`px-3 py-1.5 text-xs rounded-full border transition-all ${selectedCategories.includes(cat) ? "bg-primary text-white border-primary" : "bg-secondary/50 border-border hover:bg-secondary"}`}>
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Date Range */}
+                  <div className="mb-4">
+                    <h5 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+                      <Calendar className="h-4 w-4" /> Date Range
+                    </h5>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                      {predefinedDateRanges.map((r) => (
+                        <button key={r.value} onClick={() => applyDateRangeFilter(r.value)}
+                          className={`px-3 py-2 text-xs rounded-lg border transition-all duration-200 ${selectedDateRange === r.value ? "bg-primary text-white border-primary scale-105" : "bg-secondary/50 border-border hover:bg-secondary"}`}>
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                    {showCustomDatePicker && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}
+                        className="grid grid-cols-2 gap-3 mt-3 p-3 bg-secondary/30 rounded-lg overflow-hidden">
+                        <div>
+                          <label className="text-xs text-muted-foreground block mb-1">From</label>
+                          <Input type="date" value={dateRange.from} className="w-full"
+                            onChange={(e) => { setDateRange((d) => ({ ...d, from: e.target.value })); setCurrentPage(1); }} />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted-foreground block mb-1">To</label>
+                          <Input type="date" value={dateRange.to} className="w-full"
+                            onChange={(e) => { setDateRange((d) => ({ ...d, to: e.target.value })); setCurrentPage(1); }} />
+                        </div>
                       </motion.div>
                     )}
-                    <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                      <Button variant="outline" className="flex items-center gap-2 border-2 w-full sm:w-auto"
-                        onClick={() => setShowFilter(!showFilter)}>
-                        <Filter className="h-3 w-3 sm:h-4 sm:w-4" /> Filter
-                      </Button>
-                    </motion.div>
+                    {(dateRange.from || dateRange.to) && (
+                      <button onClick={() => { setDateRange({ from: "", to: "" }); setSelectedDateRange(""); setShowCustomDatePicker(false); }}
+                        className="text-xs text-primary hover:text-primary/80 mt-2 transition-colors">
+                        Clear date range
+                      </button>
+                    )}
                   </div>
-                </motion.div>
-              </ScrollFade>
 
-              {/* ✅ FIX #6: mode="wait" prevents animation memory leak on unmount */}
-              <AnimatePresence mode="wait">
-                {showFilter && (
-                  <motion.div
-                    key="filter-panel"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="mb-6 overflow-hidden">
-                    <div className="p-4 bg-card rounded-xl shadow-lg border border-border">
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {eventCategories.slice(1).map((cat) => (
-                          <motion.button key={cat} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                            onClick={() => handleCategoryChange(cat)}
-                            className={`px-3 py-2 rounded-lg transition-colors text-sm ${selectedCategory === cat ? "bg-primary/10 text-primary font-medium" : "hover:bg-secondary text-muted-foreground"}`}>
-                            {cat}
-                          </motion.button>
-                        ))}
+                  {/* Active filters + clear all */}
+                  {isAnyFilterActive() && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="pt-4 mt-2 border-t border-border">
+                      <div className="flex items-center justify-between mb-2">
+                        <h5 className="text-sm font-medium text-foreground">Active Filters</h5>
+                        <button onClick={clearAllFilters}
+                          className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors">
+                          <X className="h-3 w-3" /> Clear All
+                        </button>
                       </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {gridEvents.length === 0 && !featuredEvent ? (
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-16">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-secondary flex items-center justify-center">
-                    <Calendar className="h-8 w-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="text-lg sm:text-xl font-display font-bold text-foreground mb-2">No events found</h3>
-                  <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-                    There are no upcoming events{selectedCategory !== "All Events" ? ` in the "${selectedCategory}" category` : ""} yet.
-                  </p>
-                  <Button onClick={() => handleCategoryChange("All Events")}
-                    className="bg-gradient-to-r from-primary to-accent text-white font-semibold">
-                    View All Events
-                  </Button>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedCategories.map((cat) => (
+                          <span key={cat} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs">
+                            {cat}
+                            <button onClick={() => { setSelectedCategories((prev) => prev.filter((c) => c !== cat)); setCurrentPage(1); }}>
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                        {searchQuery && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs">
+                            Search: {searchQuery}
+                            <button onClick={() => setSearchQuery("")}><X className="h-3 w-3" /></button>
+                          </span>
+                        )}
+                        {selectedDateRange && selectedDateRange !== "custom" && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs">
+                            {predefinedDateRanges.find((r) => r.value === selectedDateRange)?.label}
+                            <button onClick={() => { setDateRange({ from: "", to: "" }); setSelectedDateRange(""); }}>
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
                 </motion.div>
-              ) : (
-                <>
-                  <motion.div variants={staggerContainer} initial="hidden" whileInView="visible"
-                    viewport={{ once: false, margin: "-50px" }}
-                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                    {gridEvents.map((event) => (
-                      <motion.div key={event.id} variants={fadeInUp}
-                        whileHover={{ y: -5, scale: 1.02 }} transition={{ type: "spring", stiffness: 300 }}
-                        className="group bg-card rounded-lg sm:rounded-xl lg:rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 border border-border">
+              )}
+            </AnimatePresence>
+          </div>
 
-                        <div onClick={() => handleCardClick(event.slug)}
-                          className="relative h-40 sm:h-44 overflow-hidden bg-gradient-to-br from-muted to-secondary cursor-pointer">
+        </div>
+      </div>
+    </div>
+
+    {/* Rest of your grid and pagination code remains unchanged... */}
+
+          {/* Grid */}
+          {isFilterLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+              {Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
+                <div key={i} className="bg-card rounded-lg sm:rounded-xl lg:rounded-2xl overflow-hidden border border-border animate-pulse">
+                  <div className="h-40 sm:h-44 bg-muted" />
+                  <div className="p-4 sm:p-6 space-y-3">
+                    <div className="h-4 bg-muted rounded w-1/3" />
+                    <div className="h-4 bg-muted rounded w-full" />
+                    <div className="h-4 bg-muted rounded w-2/3" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : gridEvents.length === 0 ? (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center py-16">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-secondary flex items-center justify-center">
+                <Calendar className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg sm:text-xl font-display font-bold text-foreground mb-2">No events found</h3>
+              <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                {debouncedSearch
+                  ? `No events matching "${debouncedSearch}".`
+                  : selectedCategories.length > 0
+                  ? `No events found in "${selectedCategories.join(", ")}".`
+                  : "No upcoming events yet."}
+              </p>
+              <Button onClick={clearAllFilters} className="bg-gradient-to-r from-primary to-accent text-white font-semibold">
+                View All Events
+              </Button>
+            </motion.div>
+          ) : (
+            <>
+              <motion.div variants={staggerContainer} initial="hidden" whileInView="visible"
+                viewport={{ once: false, margin: "-50px" }}
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+                {gridEvents.map((event) => (
+                  <motion.div key={event.id} variants={fadeInUp}
+                    whileHover={{ y: -5, scale: 1.02 }} transition={{ type: "spring", stiffness: 300 }}
+                    className="group bg-card rounded-lg sm:rounded-xl lg:rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 border border-border">
+
+                    <div onClick={() => handleCardClick(event.slug)}
+                      className="relative h-40 sm:h-44 overflow-hidden bg-gradient-to-br from-muted to-secondary cursor-pointer">
+                      {event.image && !imageError.has(event.id) ? (
+                        <>
                           {!imagesLoaded.has(event.id) && (
                             <div className="absolute inset-0 bg-gray-200 animate-pulse" />
                           )}
                           <motion.div whileHover={{ scale: 1.1 }} transition={{ duration: 0.3 }} className="w-full h-full">
                             <Image
-                              src={imageError.has(event.id) ? "/placeholder-event.jpg" : event.image}
-                              alt={event.title}
-                              fill
-                              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                              src={event.image}
+                              alt={event.title} fill
+                              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
                               className={`object-cover transition-opacity duration-300 ${imagesLoaded.has(event.id) ? "opacity-100" : "opacity-0"}`}
                               onLoad={() => handleImageLoad(event.id)}
                               onError={() => handleImageError(event.id)}
                               loading="lazy"
                             />
                           </motion.div>
-                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
-                            transition={{ type: "spring", delay: 0.2 }}
-                            className="absolute top-3 left-3 sm:top-4 sm:left-4 bg-white rounded-lg sm:rounded-xl p-2 sm:p-3 text-center shadow-lg">
-                            <div className="text-xs text-muted-foreground font-medium uppercase">{event.month}</div>
-                            <div className="text-xl sm:text-2xl font-bold text-foreground">{event.day}</div>
-                          </motion.div>
-                          <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
-                            transition={{ delay: 0.3 }}
-                            className="absolute top-3 right-3 sm:top-4 sm:right-4">
-                            <span className="px-2 py-1 rounded-full bg-white/90 backdrop-blur-sm text-xs font-medium text-foreground">
-                              {event.format.split(" ")[0]}
-                            </span>
-                          </motion.div>
+                        </>
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                          <span className="text-5xl font-bold text-primary/30">
+                            {event.title.charAt(0).toUpperCase()}
+                          </span>
                         </div>
+                      )}
+                      <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", delay: 0.2 }}
+                        className="absolute top-3 left-3 sm:top-4 sm:left-4 bg-white rounded-lg sm:rounded-xl p-2 sm:p-3 text-center shadow-lg">
+                        <div className="text-xs text-muted-foreground font-medium uppercase">{event.month}</div>
+                        <div className="text-xl sm:text-2xl font-bold text-foreground">{event.day}</div>
+                      </motion.div>
+                      <motion.div initial={{ x: 50, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.3 }}
+                        className="absolute top-3 right-3 sm:top-4 sm:right-4">
+                        <span className="px-2 py-1 rounded-full bg-white/90 backdrop-blur-sm text-xs font-medium text-foreground">
+                          {event.format.split(" ")[0]}
+                        </span>
+                      </motion.div>
+                    </div>
 
-                        <div className="p-4 sm:p-6">
-                          <div onClick={() => handleCardClick(event.slug)} className="cursor-pointer">
-                            <motion.span variants={scaleIn}
-                              className="inline-block px-2 py-0.5 sm:px-3 sm:py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold mb-2 sm:mb-3 uppercase">
-                              {event.category}
-                            </motion.span>
-                            <AnimatedText as="h3" delay={0.1}
-                              className="text-sm sm:text-base lg:text-lg font-display font-bold text-foreground mb-2 sm:mb-3 line-clamp-2 group-hover:text-primary transition-colors">
-                              {event.title}
-                            </AnimatedText>
-                          </div>
+                    <div className="p-4 sm:p-6">
+                      <div onClick={() => handleCardClick(event.slug)} className="cursor-pointer">
+                        <motion.span variants={scaleIn}
+                          className="inline-block px-2 py-0.5 sm:px-3 sm:py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold mb-2 sm:mb-3 uppercase">
+                          {event.category}
+                        </motion.span>
+                        <AnimatedText as="h3" delay={0.1}
+                          className="text-sm sm:text-base lg:text-lg font-display font-bold text-foreground mb-2 sm:mb-3 line-clamp-2 group-hover:text-primary transition-colors">
+                          {event.title}
+                        </AnimatedText>
+                      </div>
 
-                          <motion.div variants={staggerContainer}
-                            className="flex items-center justify-between pt-3 sm:pt-4 border-t border-border">
-                            <div className="flex gap-2">
-                              <motion.div variants={scaleIn} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                                <Button onClick={(e) => handleContactClick(event, e)} size="sm" variant="outline"
-                                  className="border-primary text-primary hover:bg-primary hover:text-white">
-                                  <Mail className="mr-1 h-3 w-3" /> Contact
-                                </Button>
-                              </motion.div>
-                              <motion.div variants={scaleIn} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                                <Button onClick={() => handleCardClick(event.slug)} size="sm"
-                                  className="bg-primary hover:bg-primary/90 text-white">
-                                  View Details
-                                </Button>
-                              </motion.div>
-                            </div>
+                      <motion.div variants={staggerContainer}
+                        className="flex items-center justify-between pt-3 sm:pt-4 border-t border-border">
+                        <div className="flex gap-2">
+                          <motion.div variants={scaleIn} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                            <Button onClick={(e) => handleContactClick(event, e)} size="sm" variant="outline"
+                              className="border-primary text-primary hover:bg-primary hover:text-white">
+                              <Mail className="mr-1 h-3 w-3" /> Contact
+                            </Button>
+                          </motion.div>
+                          <motion.div variants={scaleIn} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                            <Button onClick={() => handleCardClick(event.slug)} size="sm"
+                              className="bg-primary hover:bg-primary/90 text-white">
+                              View Details
+                            </Button>
                           </motion.div>
                         </div>
                       </motion.div>
-                    ))}
-                  </motion.div>
-
-                  {/* ── Pagination ─────────────────────────────────────────── */}
-                  {/* ✅ FIX #8: responsive dual-layout pagination (same as News/Blogs) */}
-                  {totalPages > 1 && (
-                    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.3 }}
-                      className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-border">
-
-                      {/* Mobile (< sm): compact */}
-                      <div className="flex sm:hidden flex-col items-center gap-3">
-                        <p className="text-xs text-muted-foreground">
-                          Page {currentPage} of {totalPages}
-                        </p>
-                        <div className="flex items-center gap-1.5 w-full justify-center flex-wrap">
-                          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                            <Button variant="outline" size="sm"
-                              onClick={() => handlePageChange(currentPage - 1)}
-                              disabled={currentPage === 1}
-                              className="h-9 px-3 gap-1 text-xs">
-                              <ArrowRight className="h-3 w-3 rotate-180" /> Prev
-                            </Button>
-                          </motion.div>
-
-                          {buildPageNumbers(currentPage, totalPages, true).map((p, i) =>
-                            p === "…" ? (
-                              <span key={`me-${i}`} className="px-1 text-muted-foreground text-sm">…</span>
-                            ) : (
-                              <motion.div key={`m-${p}`} whileTap={{ scale: 0.9 }}>
-                                <Button
-                                  variant={currentPage === p ? "default" : "outline"}
-                                  size="sm"
-                                  className="h-9 w-9 p-0 text-xs"
-                                  onClick={() => handlePageChange(p as number)}>
-                                  {p}
-                                </Button>
-                              </motion.div>
-                            )
-                          )}
-
-                          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                            <Button variant="outline" size="sm"
-                              onClick={() => handlePageChange(currentPage + 1)}
-                              disabled={currentPage === totalPages}
-                              className="h-9 px-3 gap-1 text-xs">
-                              Next <ArrowRight className="h-3 w-3" />
-                            </Button>
-                          </motion.div>
-                        </div>
-                      </div>
-
-                      {/* Desktop (≥ sm): full layout */}
-                      <div className="hidden sm:flex flex-row items-center justify-between gap-4">
-                        <div className="text-sm text-muted-foreground shrink-0">
-                          Showing {startIndex}–{endIndex} of {totalItems} events
-                        </div>
-                        <div className="flex items-center gap-2 flex-wrap justify-end">
-                          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                            <Button variant="outline" size="sm"
-                              onClick={() => handlePageChange(currentPage - 1)}
-                              disabled={currentPage === 1}
-                              className="gap-1">
-                              <ArrowRight className="h-3 w-3 rotate-180" /> Previous
-                            </Button>
-                          </motion.div>
-
-                          <div className="flex items-center gap-1">
-                            {buildPageNumbers(currentPage, totalPages, false).map((p, i) =>
-                              p === "…" ? (
-                                <span key={`de-${i}`} className="px-2 text-muted-foreground">…</span>
-                              ) : (
-                                <motion.div key={`d-${p}`} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
-                                  <Button
-                                    variant={currentPage === p ? "default" : "outline"}
-                                    size="sm"
-                                    className="w-10 h-10 p-0"
-                                    onClick={() => handlePageChange(p as number)}>
-                                    {p}
-                                  </Button>
-                                </motion.div>
-                              )
-                            )}
-                          </div>
-
-                          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                            <Button variant="outline" size="sm"
-                              onClick={() => handlePageChange(currentPage + 1)}
-                              disabled={currentPage === totalPages}
-                              className="gap-1">
-                              Next <ArrowRight className="h-3 w-3" />
-                            </Button>
-                          </motion.div>
-                        </div>
-                      </div>
-
-                    </motion.div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* ── Sidebar ───────────────────────────────────────────────────── */}
-            <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
-              <ScrollFade>
-                <motion.div variants={scaleIn} className="bg-gradient-to-br from-secondary/50 to-secondary rounded-xl p-5 border border-border">
-                  <h3 className="text-base font-display font-bold text-foreground mb-3">Event Categories</h3>
-                  <motion.div variants={staggerContainer} className="space-y-2">
-                    {eventCategories.slice(1).map((cat) => (
-                      <motion.button key={cat} variants={fadeInRight} whileHover={{ x: 5 }}
-                        onClick={() => handleCategoryChange(cat)}
-                        className={`w-full text-left px-3 py-2 rounded-lg transition-colors text-sm ${selectedCategory === cat ? "bg-primary/10 text-primary font-medium" : "hover:bg-white/20 text-muted-foreground"}`}>
-                        {cat}
-                      </motion.button>
-                    ))}
-                  </motion.div>
-                </motion.div>
-              </ScrollFade>
-
-              {selectedCategory !== "All Events" && (
-                <ScrollFade>
-                  <motion.div variants={scaleIn} className="bg-primary/5 rounded-xl p-5 border border-primary/20">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-display font-bold text-foreground">Active Filter</h3>
-                      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                        onClick={() => handleCategoryChange("All Events")}
-                        className="text-xs text-primary hover:text-accent transition-colors font-medium">
-                        Clear
-                      </motion.button>
                     </div>
-                    <p className="text-sm text-muted-foreground mb-3">Viewing events in:</p>
-                    <motion.div variants={scaleIn}
-                      className="px-3 py-2 bg-primary text-white rounded-lg text-sm font-semibold text-center shadow-sm">
-                      {selectedCategory}
-                    </motion.div>
-                    <p className="text-xs text-muted-foreground mt-3 text-center">
-                      {totalItems} {totalItems === 1 ? "event" : "events"} found
-                    </p>
                   </motion.div>
-                </ScrollFade>
-              )}
+                ))}
+              </motion.div>
 
-              <ScrollFade>
-                <motion.div variants={scaleIn} className="bg-card rounded-xl p-5 shadow-lg border border-border">
-                  <h3 className="text-base font-display font-bold text-foreground mb-3">Event Tips</h3>
-                  <motion.ul variants={staggerContainer} className="space-y-2 text-xs text-muted-foreground">
-                    {[
-                      { icon: Clock,    text: "Register early for best rates" },
-                      { icon: Users,    text: "Network with fellow attendees" },
-                      { icon: Calendar, text: "Add events to your calendar" },
-                    ].map(({ icon: Icon, text }) => (
-                      <motion.li key={text} variants={fadeInUp} className="flex items-start gap-2">
-                        <Icon className="h-3 w-3 text-accent mt-0.5 flex-shrink-0" />
-                        <span>{text}</span>
-                      </motion.li>
-                    ))}
-                  </motion.ul>
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-border">
+
+                  {/* Mobile */}
+                  <div className="flex sm:hidden flex-col items-center gap-3">
+                    <p className="text-xs text-muted-foreground">Page {currentPage} of {totalPages}</p>
+                    <div className="flex items-center gap-1.5 w-full justify-center flex-wrap">
+                      <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1} className="h-9 px-3 gap-1 text-xs">
+                        <ArrowRight className="h-3 w-3 rotate-180" /> Prev
+                      </Button>
+                      {buildPageNumbers(currentPage, totalPages, true).map((p, i) =>
+                        p === "…" ? (
+                          <span key={`me-${i}`} className="px-1 text-muted-foreground text-sm">…</span>
+                        ) : (
+                          <Button key={`m-${p}`} variant={currentPage === p ? "default" : "outline"}
+                            size="sm" className="h-9 w-9 p-0 text-xs" onClick={() => handlePageChange(p as number)}>
+                            {p}
+                          </Button>
+                        )
+                      )}
+                      <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages} className="h-9 px-3 gap-1 text-xs">
+                        Next <ArrowRight className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Desktop */}
+                  <div className="hidden sm:flex flex-row items-center justify-between gap-4">
+                    <div className="text-sm text-muted-foreground shrink-0">
+                      Showing {startIndex}–{endIndex} of {totalItems} events
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                      <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1} className="gap-1">
+                        <ArrowRight className="h-3 w-3 rotate-180" /> Previous
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        {buildPageNumbers(currentPage, totalPages, false).map((p, i) =>
+                          p === "…" ? (
+                            <span key={`de-${i}`} className="px-2 text-muted-foreground">…</span>
+                          ) : (
+                            <motion.div key={`d-${p}`} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}>
+                              <Button variant={currentPage === p ? "default" : "outline"}
+                                size="sm" className="w-10 h-10 p-0"
+                                onClick={() => handlePageChange(p as number)}>
+                                {p}
+                              </Button>
+                            </motion.div>
+                          )
+                        )}
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages} className="gap-1">
+                        Next <ArrowRight className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
                 </motion.div>
-              </ScrollFade>
-            </aside>
-          </div>
+              )}
+            </>
+          )}
         </div>
       </section>
 

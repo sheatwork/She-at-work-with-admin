@@ -90,25 +90,22 @@ function buildPageNumbers(current: number, total: number, compact = false): (num
 
 function buildUrl(opts: {
   page?: number; limit?: number; search?: string;
-  categorySlug?: string; tagSlug?: string;
+  categorySlugs?: string[]; tagSlug?: string;
   dateFrom?: string; dateTo?: string; readingTime?: string;
 }): string {
   const p = new URLSearchParams({ contentType: "BLOG" });
-  if (opts.page)         p.set("page",        String(opts.page));
-  if (opts.limit)        p.set("limit",       String(opts.limit));
-  if (opts.search)       p.set("search",      opts.search);
-  if (opts.categorySlug) p.set("category",    opts.categorySlug);
-  if (opts.tagSlug)      p.set("tag",         opts.tagSlug);
-  if (opts.dateFrom)     p.set("dateFrom",    opts.dateFrom);
-  if (opts.dateTo)       p.set("dateTo",      opts.dateTo);
-  if (opts.readingTime)  p.set("readingTime", opts.readingTime);
+  if (opts.page)                  p.set("page",        String(opts.page));
+  if (opts.limit)                 p.set("limit",       String(opts.limit));
+  if (opts.search)                p.set("search",      opts.search);
+  if (opts.categorySlugs?.length) p.set("category",    opts.categorySlugs.join(","));
+  if (opts.tagSlug)               p.set("tag",         opts.tagSlug);
+  if (opts.dateFrom)              p.set("dateFrom",    opts.dateFrom);
+  if (opts.dateTo)                p.set("dateTo",      opts.dateTo);
+  if (opts.readingTime)           p.set("readingTime", opts.readingTime);
   return `/api/content?${p}`;
 }
 
-function rankSuggestions(
-  results: SuggestionCandidate[],
-  query: string
-): Suggestion[] {
+function rankSuggestions(results: SuggestionCandidate[], query: string): Suggestion[] {
   const q = query.toLowerCase();
   return results
     .map((r) => {
@@ -143,14 +140,14 @@ function useDebounce<T>(value: T, delay: number): T {
 export default function BlogsPage() {
 
   // ── Filter state ──────────────────────────────────────────────────────────
-  const [selectedCategorySlug, setSelectedCategorySlug] = useState("");
-  const [tagInput, setTagInput]                         = useState("");
-  const [selectedReadingTimes, setSelectedReadingTimes] = useState<string[]>([]);
-  const [currentPage, setCurrentPage]                   = useState(1);
-  const [searchQuery, setSearchQuery]                   = useState("");
-  const [dateRange, setDateRange]                       = useState({ from: "", to: "" });
-  const [selectedDateRange, setSelectedDateRange]       = useState("");
-  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [selectedCategorySlugs, setSelectedCategorySlugs] = useState<string[]>([]);
+  const [tagInput, setTagInput]                           = useState("");
+  const [selectedReadingTimes, setSelectedReadingTimes]   = useState<string[]>([]);
+  const [currentPage, setCurrentPage]                     = useState(1);
+  const [searchQuery, setSearchQuery]                     = useState("");
+  const [dateRange, setDateRange]                         = useState({ from: "", to: "" });
+  const [selectedDateRange, setSelectedDateRange]         = useState("");
+  const [showCustomDatePicker, setShowCustomDatePicker]   = useState(false);
 
   const debouncedSearch  = useDebounce(searchQuery, SEARCH_DEBOUNCE);
   const debouncedTagSlug = useDebounce(tagInput,    TAG_DEBOUNCE);
@@ -170,7 +167,7 @@ export default function BlogsPage() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isFilterLoading, setIsFilterLoading]   = useState(false);
 
-  // ── Suggestions — derived from the grid response, no extra request ────────
+  // ── Suggestions ───────────────────────────────────────────────────────────
   const [showSuggestions, setShowSuggestions]     = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState<Suggestion[]>([]);
 
@@ -183,13 +180,8 @@ export default function BlogsPage() {
   const filterAbortRef = useRef<AbortController | null>(null);
   const isFirstRender  = useRef(true);
   const prevFiltersRef = useRef({
-    page: 1,
-    search: "",
-    category: "",
-    tag: "",
-    readingTimes: "",
-    dateFrom: "",
-    dateTo: ""
+    page: 1, search: "", category: "",
+    tag: "", readingTimes: "", dateFrom: "", dateTo: "",
   });
 
   // ── Animation ─────────────────────────────────────────────────────────────
@@ -202,7 +194,7 @@ export default function BlogsPage() {
     visible: { opacity: 1, y: 0, transition: { duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] } },
   };
 
-  // ── Apply grid response ──────────────────────────────────────────────────
+  // ── Apply grid response ───────────────────────────────────────────────────
   const applyResponse = useCallback((data: ApiResponse, query?: string) => {
     setBlogItems(data.items);
     setTotalPages(data.totalPages);
@@ -210,7 +202,6 @@ export default function BlogsPage() {
     if (data.categories?.length)   setCategories(data.categories);
     if (data.readingTimes?.length) setReadingTimeBuckets(data.readingTimes);
 
-    // Derive suggestions from the grid response candidates
     const q = query ?? "";
     if (data.suggestionCandidates?.length && q.length >= 2) {
       const ranked = rankSuggestions(data.suggestionCandidates, q);
@@ -240,72 +231,53 @@ export default function BlogsPage() {
     })();
   }, [applyResponse]);
 
-  // ── Check if filters actually changed ─────────────────────────────────────
+  // ── Check if filters changed ──────────────────────────────────────────────
   const haveFiltersChanged = useCallback(() => {
     const currentFilters = {
-      page: currentPage,
-      search: debouncedSearch,
-      category: selectedCategorySlug,
-      tag: debouncedTagSlug,
+      page:         currentPage,
+      search:       debouncedSearch,
+      category:     selectedCategorySlugs.join(","),
+      tag:          debouncedTagSlug,
       readingTimes: selectedReadingTimes.join(","),
-      dateFrom: dateRange.from,
-      dateTo: dateRange.to
+      dateFrom:     dateRange.from,
+      dateTo:       dateRange.to,
     };
-
-    const prev = prevFiltersRef.current;
-    
-    // Compare each filter
-    const changed = 
-      prev.page !== currentFilters.page ||
-      prev.search !== currentFilters.search ||
-      prev.category !== currentFilters.category ||
-      prev.tag !== currentFilters.tag ||
+    const prev    = prevFiltersRef.current;
+    const changed =
+      prev.page         !== currentFilters.page         ||
+      prev.search       !== currentFilters.search       ||
+      prev.category     !== currentFilters.category     ||
+      prev.tag          !== currentFilters.tag          ||
       prev.readingTimes !== currentFilters.readingTimes ||
-      prev.dateFrom !== currentFilters.dateFrom ||
-      prev.dateTo !== currentFilters.dateTo;
-
-    if (changed) {
-      prevFiltersRef.current = currentFilters;
-    }
-
+      prev.dateFrom     !== currentFilters.dateFrom     ||
+      prev.dateTo       !== currentFilters.dateTo;
+    if (changed) prevFiltersRef.current = currentFilters;
     return changed;
-  }, [currentPage, debouncedSearch, selectedCategorySlug, debouncedTagSlug, selectedReadingTimes, dateRange.from, dateRange.to]);
+  }, [currentPage, debouncedSearch, selectedCategorySlugs, debouncedTagSlug, selectedReadingTimes, dateRange.from, dateRange.to]);
 
   // ── Filter fetch ──────────────────────────────────────────────────────────
   const fetchFilteredBlogs = useCallback(async () => {
-    // 🚨 CRITICAL: Don't fetch if search is too short (1 character)
-    if (debouncedSearch.length > 0 && debouncedSearch.length < 2) {
-      return;
-    }
+    if (debouncedSearch.length > 0 && debouncedSearch.length < 2) return;
+    if (!haveFiltersChanged()) return;
 
-    // Check if filters actually changed to prevent duplicate requests
-    if (!haveFiltersChanged()) {
-      return;
-    }
-
-    // Cancel any in-flight request
-    if (filterAbortRef.current) {
-      filterAbortRef.current.abort();
-    }
-    
+    if (filterAbortRef.current) filterAbortRef.current.abort();
     filterAbortRef.current = new AbortController();
     setIsFilterLoading(true);
-    
+
     try {
       const res = await fetch(
         buildUrl({
-          page:         currentPage,
-          limit:        ITEMS_PER_PAGE,
-          search:       debouncedSearch.length >= 2 ? debouncedSearch : undefined,
-          categorySlug: selectedCategorySlug || undefined,
-          tagSlug:      debouncedTagSlug || undefined,
-          dateFrom:     dateRange.from || undefined,
-          dateTo:       dateRange.to || undefined,
-          readingTime:  selectedReadingTimes.length > 0 ? selectedReadingTimes.join(",") : undefined,
+          page:          currentPage,
+          limit:         ITEMS_PER_PAGE,
+          search:        debouncedSearch.length >= 2 ? debouncedSearch : undefined,
+          categorySlugs: selectedCategorySlugs.length ? selectedCategorySlugs : undefined,
+          tagSlug:       debouncedTagSlug || undefined,
+          dateFrom:      dateRange.from || undefined,
+          dateTo:        dateRange.to || undefined,
+          readingTime:   selectedReadingTimes.length > 0 ? selectedReadingTimes.join(",") : undefined,
         }),
         { signal: filterAbortRef.current.signal }
       );
-      
       if (!res.ok) throw new Error("Failed");
       const data: ApiResponse = await res.json();
       applyResponse(data, debouncedSearch.length >= 2 ? debouncedSearch : undefined);
@@ -316,48 +288,31 @@ export default function BlogsPage() {
     } finally {
       setIsFilterLoading(false);
     }
-  }, [currentPage, debouncedSearch, selectedCategorySlug, debouncedTagSlug, selectedReadingTimes, dateRange, applyResponse, haveFiltersChanged]);
+  }, [currentPage, debouncedSearch, selectedCategorySlugs, debouncedTagSlug, selectedReadingTimes, dateRange, applyResponse, haveFiltersChanged]);
 
-  // ── Trigger fetch when filters change ────────────────────────────────────
+  // ── Trigger fetch when filters change ─────────────────────────────────────
   useEffect(() => {
-    // Skip first render
-    if (isFirstRender.current) { 
-      isFirstRender.current = false; 
-      return; 
-    }
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
 
-    // Don't fetch if no filters are active (except page 1)
-    const hasActiveFilters = 
-      selectedCategorySlug || 
-      debouncedTagSlug || 
+    const hasActiveFilters =
+      selectedCategorySlugs.length > 0 ||
+      debouncedTagSlug ||
       selectedReadingTimes.length > 0 ||
-      dateRange.from || 
-      dateRange.to || 
+      dateRange.from ||
+      dateRange.to ||
       debouncedSearch.length >= 2;
 
-    if (!hasActiveFilters && currentPage === 1) {
-      return;
-    }
+    if (!hasActiveFilters && currentPage === 1) return;
 
     fetchFilteredBlogs();
-    
-    return () => {
-      if (filterAbortRef.current) {
-        filterAbortRef.current.abort();
-      }
-    };
+    return () => { if (filterAbortRef.current) filterAbortRef.current.abort(); };
   }, [
-    currentPage,
-    debouncedSearch,
-    selectedCategorySlug,
-    debouncedTagSlug,
-    selectedReadingTimes,
-    dateRange.from,
-    dateRange.to,
-    fetchFilteredBlogs
+    currentPage, debouncedSearch, selectedCategorySlugs,
+    debouncedTagSlug, selectedReadingTimes,
+    dateRange.from, dateRange.to, fetchFilteredBlogs,
   ]);
 
-  // ── Clear suggestions when search is cleared ──────────────────────────────
+  // ── Clear suggestions when search cleared ─────────────────────────────────
   useEffect(() => {
     if (debouncedSearch.length < 2) {
       setSearchSuggestions([]);
@@ -382,18 +337,13 @@ export default function BlogsPage() {
     if (range === "custom") { setShowCustomDatePicker(true); return; }
     setShowCustomDatePicker(false);
     if (!range) { setDateRange({ from: "", to: "" }); return; }
-    
-    switch(range) {
-      case "24h": from.setDate(now.getDate() - 1); break;
-      case "week": from.setDate(now.getDate() - 7); break;
-      case "month": from.setMonth(now.getMonth() - 1); break;
-      case "3months": from.setMonth(now.getMonth() - 3); break;
+    switch (range) {
+      case "24h":     from.setDate(now.getDate() - 1);    break;
+      case "week":    from.setDate(now.getDate() - 7);    break;
+      case "month":   from.setMonth(now.getMonth() - 1);  break;
+      case "3months": from.setMonth(now.getMonth() - 3);  break;
     }
-    
-    setDateRange({ 
-      from: from.toISOString().split("T")[0], 
-      to: now.toISOString().split("T")[0] 
-    });
+    setDateRange({ from: from.toISOString().split("T")[0], to: now.toISOString().split("T")[0] });
     setCurrentPage(1);
   };
 
@@ -409,34 +359,44 @@ export default function BlogsPage() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const clearAllFilters = () => {
-    setSelectedCategorySlug(""); 
-    setTagInput(""); 
+    setSelectedCategorySlugs([]);
+    setTagInput("");
     setSelectedReadingTimes([]);
-    setDateRange({ from: "", to: "" }); 
-    setSelectedDateRange(""); 
+    setDateRange({ from: "", to: "" });
+    setSelectedDateRange("");
     setShowCustomDatePicker(false);
-    setSearchQuery(""); 
-    setSearchSuggestions([]); 
+    setSearchQuery("");
+    setSearchSuggestions([]);
     setShowSuggestions(false);
-    setCurrentPage(1); 
+    setCurrentPage(1);
     setIsFilterOpen(false);
   };
 
   const isAnyFilterActive = () =>
-    !!selectedCategorySlug || !!tagInput || selectedReadingTimes.length > 0 ||
+    selectedCategorySlugs.length > 0 || !!tagInput || selectedReadingTimes.length > 0 ||
     !!dateRange.from || !!dateRange.to || !!searchQuery;
 
-  const activeFilterCount = [!!selectedCategorySlug, !!tagInput, selectedReadingTimes.length > 0,
-    !!(dateRange.from || dateRange.to), !!searchQuery].filter(Boolean).length;
+  const activeFilterCount = [
+    selectedCategorySlugs.length > 0,
+    !!tagInput,
+    selectedReadingTimes.length > 0,
+    !!(dateRange.from || dateRange.to),
+    !!searchQuery,
+  ].filter(Boolean).length;
 
-  const handlePageChange = (page: number) => { 
-    setCurrentPage(page); 
-    window.scrollTo({ top: 0, behavior: "smooth" }); 
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const startIndex       = (currentPage - 1) * ITEMS_PER_PAGE;
-  const endIndex         = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
-  const selectedCategory = categories.find((c) => c.slug === selectedCategorySlug);
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const selectedCategoryNames = selectedCategorySlugs
+    .map((slug) => categories.find((c) => c.slug === slug)?.name)
+    .filter(Boolean)
+    .join(", ");
+
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex   = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (isInitialLoading) return (
@@ -587,11 +547,11 @@ export default function BlogsPage() {
         <section id="all-blogs-section" className="px-4 sm:px-6 lg:px-8 py-12">
           <div className="max-w-screen-xl mx-auto">
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 sm:mb-12">
-              <ScrollReveal direction="right" delay={0.2}>
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8 sm:mb-12">
+              <ScrollReveal direction="right" delay={0.2} className="min-w-0">
                 <div>
                   <AnimatedText as="h2" delay={0.1}>
-                    {selectedCategory ? selectedCategory.name : "All Blog Articles"}
+                    {selectedCategoryNames || "All Blog Articles"}
                     {debouncedSearch.length >= 2 && <span className="text-lg sm:text-xl text-primary"> — Search: {debouncedSearch}</span>}
                   </AnimatedText>
                   <AnimatedText as="p" delay={0.2}>
@@ -606,10 +566,11 @@ export default function BlogsPage() {
                 </div>
               </ScrollReveal>
 
-              <ScrollReveal direction="left" delay={0.3}>
-                <div className="flex flex-col xs:flex-row items-stretch xs:items-center gap-2 w-full sm:w-auto">
+              <ScrollReveal direction="left" delay={0.3} className="flex-shrink-0">
+                <div className="flex flex-row items-center gap-2 w-full lg:w-auto">
+
                   {/* SEARCH */}
-                  <div className="relative w-full sm:w-64" ref={searchRef}>
+                  <div className="relative w-full sm:w-56 lg:w-64" ref={searchRef}>
                     <form onSubmit={(e) => { e.preventDefault(); setShowSuggestions(false); }}>
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-black z-10" />
                       <Input type="search" placeholder="Search blogs…" className="pl-10 pr-10 w-full bg-white"
@@ -621,21 +582,21 @@ export default function BlogsPage() {
                         </button>
                       )}
                     </form>
-                    <SearchSuggestions 
+                    <SearchSuggestions
                       suggestions={searchSuggestions}
-                      onSelect={(title) => { 
-                        setSearchQuery(title); 
-                        setShowSuggestions(false);
-                      }}
-                      searchQuery={debouncedSearch} 
-                      isVisible={showSuggestions} 
-                      onClose={() => setShowSuggestions(false)} 
+                      onSelect={(title) => { setSearchQuery(title); setShowSuggestions(false); }}
+                      searchQuery={debouncedSearch}
+                      isVisible={showSuggestions}
+                      onClose={() => setShowSuggestions(false)}
                     />
                   </div>
 
-                  {/* FILTER */}
-                  <div className="relative w-full xs:w-auto" ref={filterRef}>
-                    <Button variant="outline" className="w-full xs:w-auto flex items-center justify-center gap-2"
+                  {/* FILTER
+                      FIX: w-full on mobile so left-0 anchors correctly inside viewport.
+                      On sm+ shrinks to button width and switches to right-0 anchor.
+                  */}
+                  <div className="relative w-full sm:w-auto" ref={filterRef}>
+                    <Button variant="outline" className="w-full sm:w-auto flex items-center justify-center gap-2"
                       onClick={() => setIsFilterOpen((v) => !v)}>
                       <SlidersHorizontal className="h-4 w-4" />Filters
                       {isAnyFilterActive() && (
@@ -649,29 +610,60 @@ export default function BlogsPage() {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.2 }}
-                        className="absolute top-full mt-1 w-screen max-w-[calc(100vw-2rem)] sm:w-96 bg-white border border-border rounded-lg shadow-xl z-50 max-h-[80vh] overflow-y-auto p-4"
-                        style={{
-                          right: 0,
-                          left: "auto",
-                        }}
+                        className="
+                          absolute
+                          top-[calc(100%+8px)]
+                          left-0 sm:left-auto sm:right-0
+                          w-[calc(100vw-2rem)] sm:w-96
+                          bg-white border border-border
+                          rounded-2xl shadow-2xl
+                          z-[9999]
+                          max-h-[75vh] overflow-y-auto
+                          p-4
+                        "
                       >
-                        <h4 className="text-lg font-semibold text-foreground mb-4">Filter Articles</h4>
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="text-lg font-semibold text-foreground">Filter Articles</h4>
+                          <button
+                            onClick={() => setIsFilterOpen(false)}
+                            className="p-1 rounded-lg hover:bg-secondary transition-colors">
+                            <X className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </div>
 
+                        {/* Category — multi-select */}
                         <div className="mb-4">
                           <h5 className="text-sm font-medium text-foreground mb-2">Category</h5>
-                          <MultiSelectDropdown label="Categories" icon={<CalendarDays className="h-4 w-4" />}
+                          <MultiSelectDropdown
+                            label="Categories"
+                            icon={<CalendarDays className="h-4 w-4" />}
                             options={categories.map((c) => c.name)}
-                            selectedValues={selectedCategory ? [selectedCategory.name] : []}
-                            onChange={(vals) => { const cat = categories.find((c) => c.name === vals[vals.length - 1]); setSelectedCategorySlug(cat?.slug ?? ""); setCurrentPage(1); }}
-                            placeholder="Select category" allOptionLabel="All Categories" />
+                            selectedValues={
+                              selectedCategorySlugs
+                                .map((slug) => categories.find((c) => c.slug === slug)?.name)
+                                .filter(Boolean) as string[]
+                            }
+                            onChange={(vals) => {
+                              const slugs = vals
+                                .map((name) => categories.find((c) => c.name === name)?.slug)
+                                .filter(Boolean) as string[];
+                              setSelectedCategorySlugs(slugs);
+                              setCurrentPage(1);
+                            }}
+                            placeholder="Select categories"
+                            allOptionLabel="All Categories"
+                          />
                         </div>
 
+                        {/* Tags */}
                         <div className="mb-4">
-                          <h5 className="text-sm font-medium text-foreground mb-2 flex items-center gap-1"><Tag className="h-3.5 w-3.5" /> Filter by Tag</h5>
+                          <h5 className="text-sm font-medium text-foreground mb-2 flex items-center gap-1">
+                            <Tag className="h-3.5 w-3.5" /> Filter by Tag
+                          </h5>
                           <Input placeholder="Enter tag slug…" value={tagInput} onChange={(e) => setTagInput(e.target.value)} className="w-full" />
-                          <p className="text-xs text-muted-foreground mt-1">API fires 500ms after you stop typing</p>
                         </div>
 
+                        {/* Reading Time */}
                         {readingTimeBuckets.length > 0 && (
                           <div className="mb-4">
                             <h5 className="text-sm font-medium text-foreground mb-2">Reading Time</h5>
@@ -687,8 +679,11 @@ export default function BlogsPage() {
                           </div>
                         )}
 
+                        {/* Date Range */}
                         <div className="mb-4">
-                          <h5 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2"><Calendar className="h-4 w-4" /> Date Range</h5>
+                          <h5 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+                            <Calendar className="h-4 w-4" /> Date Range
+                          </h5>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
                             {predefinedDateRanges.map((r) => (
                               <button key={r.value} onClick={() => applyDateRangeFilter(r.value)}
@@ -702,30 +697,48 @@ export default function BlogsPage() {
                               className="grid grid-cols-2 gap-3 mt-3 p-3 bg-secondary/30 rounded-lg overflow-hidden">
                               <div>
                                 <label className="text-xs text-muted-foreground block mb-1">From</label>
-                                <Input type="date" value={dateRange.from} className="w-full" onChange={(e) => { setDateRange((d) => ({ ...d, from: e.target.value })); setCurrentPage(1); }} />
+                                <Input type="date" value={dateRange.from} className="w-full"
+                                  onChange={(e) => { setDateRange((d) => ({ ...d, from: e.target.value })); setCurrentPage(1); }} />
                               </div>
                               <div>
                                 <label className="text-xs text-muted-foreground block mb-1">To</label>
-                                <Input type="date" value={dateRange.to} className="w-full" onChange={(e) => { setDateRange((d) => ({ ...d, to: e.target.value })); setCurrentPage(1); }} />
+                                <Input type="date" value={dateRange.to} className="w-full"
+                                  onChange={(e) => { setDateRange((d) => ({ ...d, to: e.target.value })); setCurrentPage(1); }} />
                               </div>
                             </motion.div>
                           )}
                           {(dateRange.from || dateRange.to) && (
                             <button onClick={() => { setDateRange({ from: "", to: "" }); setSelectedDateRange(""); setShowCustomDatePicker(false); }}
-                              className="text-xs text-primary hover:text-primary/80 mt-2 transition-colors">Clear date range</button>
+                              className="text-xs text-primary hover:text-primary/80 mt-2 transition-colors">
+                              Clear date range
+                            </button>
                           )}
                         </div>
 
+                        {/* Active chips */}
                         {isAnyFilterActive() && (
                           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="pt-4 mt-2 border-t border-border">
                             <div className="flex items-center justify-between mb-2">
                               <h5 className="text-sm font-medium text-foreground">Active Filters</h5>
-                              <button onClick={clearAllFilters} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"><X className="h-3 w-3" /> Clear All</button>
+                              <button onClick={clearAllFilters} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors">
+                                <X className="h-3 w-3" /> Clear All
+                              </button>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              {selectedCategory && <Chip color="primary" icon={<CalendarDays className="h-3 w-3" />} onRemove={() => { setSelectedCategorySlug(""); setCurrentPage(1); }}>{selectedCategory.name}</Chip>}
+                              {/* Multi-category chips — one per selected category */}
+                              {selectedCategorySlugs.map((slug) => {
+                                const cat = categories.find((c) => c.slug === slug);
+                                return cat ? (
+                                  <Chip key={slug} color="primary" icon={<CalendarDays className="h-3 w-3" />}
+                                    onRemove={() => { setSelectedCategorySlugs((prev) => prev.filter((s) => s !== slug)); setCurrentPage(1); }}>
+                                    {cat.name}
+                                  </Chip>
+                                ) : null;
+                              })}
                               {tagInput && <Chip color="purple" icon={<Tag className="h-3 w-3" />} onRemove={() => { setTagInput(""); setCurrentPage(1); }}>#{tagInput}</Chip>}
-                              {selectedReadingTimes.map((b) => <Chip key={b} color="blue" icon={<Clock className="h-3 w-3" />} onRemove={() => setSelectedReadingTimes((p) => p.filter((x) => x !== b))}>{b}</Chip>)}
+                              {selectedReadingTimes.map((b) => (
+                                <Chip key={b} color="blue" icon={<Clock className="h-3 w-3" />} onRemove={() => setSelectedReadingTimes((p) => p.filter((x) => x !== b))}>{b}</Chip>
+                              ))}
                               {selectedDateRange && selectedDateRange !== "custom" && (
                                 <Chip color="green" icon={<Calendar className="h-3 w-3" />} onRemove={() => { setDateRange({ from: "", to: "" }); setSelectedDateRange(""); }}>
                                   {predefinedDateRanges.find((r) => r.value === selectedDateRange)?.label}
@@ -738,6 +751,7 @@ export default function BlogsPage() {
                       </motion.div>
                     )}
                   </div>
+
                 </div>
               </ScrollReveal>
             </div>
@@ -786,7 +800,8 @@ export default function BlogsPage() {
                             {blog.tags.length > 0 && (
                               <div className="flex flex-wrap gap-1 mb-3">
                                 {blog.tags.slice(0, 3).map((tag) => (
-                                  <button key={tag.id} onClick={(e) => { e.preventDefault(); setTagInput(tag.slug); setCurrentPage(1); }}
+                                  <button key={tag.id}
+                                    onClick={(e) => { e.preventDefault(); setTagInput(tag.slug); setCurrentPage(1); }}
                                     className="px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-[10px] hover:bg-primary/10 hover:text-primary transition-colors">
                                     #{tag.name}
                                   </button>
@@ -818,7 +833,8 @@ export default function BlogsPage() {
                             <ArrowRight className="h-3 w-3 rotate-180" />Prev
                           </Button>
                           {buildPageNumbers(currentPage, totalPages, true).map((p, i) =>
-                            p === "…" ? <span key={`me-${i}`} className="px-1 text-muted-foreground text-sm">…</span>
+                            p === "…"
+                              ? <span key={`me-${i}`} className="px-1 text-muted-foreground text-sm">…</span>
                               : <motion.div key={`m-${p}`} whileTap={{ scale: 0.9 }}><Button variant={currentPage === p ? "default" : "outline"} size="sm" className="h-9 w-9 p-0 text-xs" onClick={() => handlePageChange(p as number)}>{p}</Button></motion.div>
                           )}
                           <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages} className="h-9 px-3 gap-1 text-xs">
@@ -835,7 +851,8 @@ export default function BlogsPage() {
                           </Button>
                           <div className="flex items-center gap-1">
                             {buildPageNumbers(currentPage, totalPages, false).map((p, i) =>
-                              p === "…" ? <span key={`de-${i}`} className="px-2 text-muted-foreground">…</span>
+                              p === "…"
+                                ? <span key={`de-${i}`} className="px-2 text-muted-foreground">…</span>
                                 : <motion.div key={`d-${p}`} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }}><Button variant={currentPage === p ? "default" : "outline"} size="sm" className="w-10 h-10 p-0" onClick={() => handlePageChange(p as number)}>{p}</Button></motion.div>
                             )}
                           </div>
