@@ -56,7 +56,7 @@ export default async function BlogDetailPage({ params }: { params: Promise<{ slu
           </div>
         </div>
 
-        <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 ">
+        <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 ">
 
           <header className="mb-8">
             <div className="flex flex-wrap items-center gap-2 mb-4">

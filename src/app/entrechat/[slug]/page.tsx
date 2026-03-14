@@ -61,7 +61,7 @@ export default async function EntrechatDetailPage({ params }: { params: Promise<
           </div>
         </div>
 
-        <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 ">
 
           <header className="mb-8">
             {/* Category + format + tags */}

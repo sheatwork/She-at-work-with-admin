@@ -125,7 +125,7 @@ export const HeroSection = () => {
                 Since 2017 • Trusted Global Community
               </motion.div>{" "}
               {/* Animated Heading */}{" "}
-              <div className="relative mt-2 min-h-[120px] sm:min-h-[150px] overflow-hidden">
+              <div className="relative mt-2 min-h-[100px] sm:min-h-[150px] overflow-hidden">
                 {" "}
                 <AnimatePresence mode="wait">
                   {" "}

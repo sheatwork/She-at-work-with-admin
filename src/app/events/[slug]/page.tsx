@@ -58,7 +58,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ sl
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-background pt-28">
+      <main className="min-h-screen bg-background">
 
         {/* Back nav */}
         <div className="border-b">
@@ -71,7 +71,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ sl
           </div>
         </div>
 
-        <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
 
           {/* Header */}
           <header className="mb-8">
