@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { MultiSelectDropdown } from "@/components/common/MultiSelectDropdown";
-import { Chip } from "@/components/blogs/Chip";
+import { Chip } from "@/components/content/Chip";
 import type { Category, ContentPageConfig } from "./types";
 
 const predefinedDateRanges = [

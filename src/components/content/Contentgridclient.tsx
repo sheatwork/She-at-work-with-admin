@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { AnimatedText, ScrollFade, StaggerChildren } from "@/components/common/ScrollFade";
 import { ScrollReveal } from "@/components/common/ScrollReveal";
-import { SkeletonCard } from "@/components/blogs/SkeletonCard";
-import { SearchSuggestions } from "@/components/news/SearchSuggestions";
+import { SkeletonCard } from "@/components/content/SkeletonCard";
+import { SearchSuggestions } from "@/components/content/SearchSuggestions";
 
 import type {
   BaseContentItem, BaseApiResponse, Category, ContentPageConfig,

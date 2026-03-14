@@ -43,10 +43,10 @@ export default async function BlogDetailPage({ params }: { params: Promise<{ slu
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-background">
+      <main className="min-h-screen bg-background pt-28">
 
         {/* Sticky back nav */}
-        <div className="border-b bg-background/80 backdrop-blur sticky top-0 z-10">
+        <div className=" bg-background/80 backdrop-blur sticky top-0 z-10">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
             <Link href="/blogs">
               <Button variant="ghost" size="sm" className="flex items-center gap-2">
@@ -56,7 +56,7 @@ export default async function BlogDetailPage({ params }: { params: Promise<{ slu
           </div>
         </div>
 
-        <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 ">
 
           <header className="mb-8">
             <div className="flex flex-wrap items-center gap-2 mb-4">
