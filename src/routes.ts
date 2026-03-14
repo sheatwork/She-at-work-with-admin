@@ -1,20 +1,39 @@
+// routes.ts
+// Single source of truth for all route config.
+// Normalized to regex only — no mixed string/RegExp array.
+// Middleware reads this directly with zero runtime parsing overhead.
+
 import { Role } from "./validaton-schema";
 
-export const DEFAULT_LOGIN_REDIRECT: string = "/dashboard";
+export const DEFAULT_LOGIN_REDIRECT = "/dashboard";
+export const apiAuthPrefix          = "/api/auth";
 
-// Prefix for API authentication routes.
-export const apiAuthPrefix: string = "/api/auth";
+// ── Public routes ──────────────────────────────────────────────────────────
+// Converted to a single compiled regex so middleware does ONE .test() call
+// instead of looping an array on every request.
+//
+// Covers:
+//   /                          homepage
+//   /auth/verify-email         email link
+//   /about, /about/*           about + core-team + press-room
+//   /news, /news/*             news listing + detail
+//   /blogs, /blogs/*
+//   /entrechat, /entrechat/*
+//   /events, /events/*
+//   /contact
+//   /share-your-story
+//   /gettingstarted, /gettingstarted/*
+export const publicRoutePattern = /^(\/|\/auth\/verify-email|\/about(\/.*)?|\/news(\/.*)?|\/blogs(\/.*)?|\/entrechat(\/.*)?|\/events(\/.*)?|\/contact|\/share-your-story|\/gettingstarted(\/.*)?)$/;
 
-// Routes which are accessible to all.
-// export const publicRoutes: string[] = ["/", "/auth/verify-email","/news","/about","/blogs","/contact","/entrechat","/events","/share-your-story"];
+// ── Public API prefixes ────────────────────────────────────────────────────
+// Checked with startsWith — keep as array, easy to extend.
+export const publicApiPrefixes: string[] = [
+  "/api/contact-submissions",
+  "/api/content",
+  "/api/stories",
+];
 
-// Routes which are accessible to all.
-export const publicRoutes: (string | RegExp)[] = ["/", "/auth/verify-email", "/news", "/about", "/blogs", "/contact", "/entrechat", "/events", "/share-your-story", /^\/blogs(\/.*)?$/, /^\/entrechat(\/.*)?$/, /^\/news(\/.*)?$/, /^\/events(\/.*)?$/, "/about/core-team", "/gettingstarted", "/gettingstarted/government-schemes-india", "/gettingstarted/global-schemes", "/about/press-room",/^\/about(\/.*)?$/];
-
-// APIs which are accessible to all.
-export const publicApis: string[] = ["/api/shareyourstory", "/api/contact-submissions", "/api/content", "/api/stories"];
-
-// Routes which are used for authentication.
+// ── Auth routes (login, register, etc.) ───────────────────────────────────
 export const authRoutes: string[] = [
   "/auth/error",
   "/auth/login",
@@ -23,8 +42,9 @@ export const authRoutes: string[] = [
   "/auth/reset-password",
 ];
 
-// Routes which are protected with diffferent roles
-export const protectedRoutes: Record<string, Role[]> = {
-  "^/dashboard/admin(/.*)?$": ["ADMIN"],
-  "^/dashboard/user(/.*)?$": ["USER"],
-};
+// ── Role-based protected routes ────────────────────────────────────────────
+// Pre-compiled regex → Role[] map. Compiled once at module load, not per-request.
+export const protectedRoutes: { pattern: RegExp; roles: Role[] }[] = [
+  { pattern: /^\/dashboard\/admin(\/.*)?$/, roles: ["ADMIN"] },
+  { pattern: /^\/dashboard\/user(\/.*)?$/,  roles: ["USER"] },
+];
