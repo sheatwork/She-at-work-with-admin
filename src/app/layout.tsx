@@ -24,7 +24,11 @@ const manrope = Manrope({
   display: "swap",
 });
 
+/**
+ * GLOBAL METADATA
+ */
 export const metadata: Metadata = {
+  metadataBase: new URL("https://she-at-work-v2.vercel.app/"), // ✅ FIXED SEO WARNING
   title: "She At Work - Shaping the Future of Women Entrepreneurship",
   description:
     "Join a vibrant community of visionary women leaders, founders, and changemakers. Discover inspiring stories, insights, and resources.",
@@ -35,6 +39,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // ⚠️ Server session fetch (OK if needed globally)
   const session = await auth();
 
   return (
@@ -44,15 +49,16 @@ export default async function RootLayout({
       >
         <SessionProvider
           session={session}
-          refetchInterval={5 * 60}
-          refetchOnWindowFocus={true}
+          refetchInterval={0} // ✅ removed auto polling
+          refetchOnWindowFocus={false} // ✅ removed extra API calls
         >
           <main className="flex min-h-screen flex-col">
             {children}
           </main>
-
-          <Footer />
         </SessionProvider>
+
+        {/* Footer should NOT be inside session provider */}
+        <Footer />
       </body>
     </html>
   );
