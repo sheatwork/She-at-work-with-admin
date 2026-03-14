@@ -1,38 +1,71 @@
-// app/(protected)/dashboard/page.tsx
-// CHANGED: from "use client" + useEffect + useCurrentRole
-//          to server component + auth() + redirect()
-//
-// WHY:
-//   The old version loaded the page, hydrated React, ran useEffect,
-//   THEN redirected — users saw a spinner for ~300-800ms unnecessarily.
-//   auth() here is fine because this is a PROTECTED page (only logged-in
-//   users reach it — middleware already verified the JWT).
-//   The DB lookup cost is justified: this page only renders when someone
-//   actually navigates to /dashboard.
-//
-// auth() is ONLY called on pages that genuinely need it (protected routes).
-// NOT in root layout where it ran on every public page.
+// src/app/(protected)/dashboard/page.tsx
+"use client";
 
-import { auth } from "@/auth";
-import { redirect } from "next/navigation";
+import { useCurrentRole } from "@/hooks/auth";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-export default async function Dashboard() {
-  const session = await auth();
+export default function Dashboard() {
+  const router = useRouter();
+  const role = useCurrentRole();
 
-  // Middleware guarantees the user is logged in before reaching here.
-  // But be defensive — if somehow session is missing, send to login.
-  if (!session?.user?.role) {
-    redirect("/auth/login");
-  }
+  useEffect(() => {
+    // Remove the reload logic - let NextAuth handle session loading
+    if (role === undefined) {
+      // Still loading - do nothing
+      return;
+    }
 
-  switch (session.user.role) {
-    case "ADMIN":
-      redirect("/dashboard/admin");
-    case "USER":
-      redirect("/dashboard/user");
-    case "SUPER_ADMIN":
-      redirect("/dashboard/superadmin");
-    default:
-      redirect("/auth/login");
-  }
+    if (!role) {
+      // No role means not authenticated - redirect to login
+      router.replace("/auth/login");
+      return;
+    }
+
+    // Immediate redirect based on role - use replace instead of push
+    // to avoid keeping dashboard in history
+    switch (role) {
+      case "ADMIN":
+        router.replace("/dashboard/admin");
+        break;
+      case "USER":
+        router.replace("/dashboard/user");
+        break;
+      case "SUPER_ADMIN":
+        router.replace("/dashboard/superadmin");
+        break;
+      default:
+        router.replace("/auth/login");
+        break;
+    }
+  }, [router, role]);
+
+  // Simplified loading state
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="flex flex-col items-center gap-4">
+        <svg
+          className="animate-spin h-10 w-10 text-blue-600"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle
+            className="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          />
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          />
+        </svg>
+        <p className="text-gray-600">Loading dashboard...</p>
+      </div>
+    </div>
+  );
 }

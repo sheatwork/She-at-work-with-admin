@@ -2,43 +2,49 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // ❌ REMOVED: reactCompiler — not a valid Next.js 15 config key.
+  //    Was throwing "Unrecognized key(s) in object: 'reactCompiler'" on every build.
+  //    The React Compiler is configured via Babel/SWC plugins separately if needed.
+
+  // Packages that use Node.js-only APIs (fs, net, etc.) and must not be
+  // bundled for the browser. jsdom uses XMLHttpRequest + DOM APIs that don't
+  // exist in the edge runtime — marking it external prevents bundling errors.
   serverExternalPackages: ["jsdom"],
 
-  // Force Vercel's CDN to cache content API responses.
-  // Without this, Vercel ignores Cache-Control headers set inside route handlers
-  // for dynamic routes. This config applies them at the infrastructure level.
-  async headers() {
-    return [
-      {
-        // Content listing API — cache 60s, serve stale for 5 min while revalidating
-        source: "/api/content",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, s-maxage=60, stale-while-revalidate=300",
-          },
-        ],
-      },
-      {
-        // Content detail API — cache 5 min, serve stale for 10 min
-        source: "/api/content/:slug*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, s-maxage=300, stale-while-revalidate=600",
-          },
-        ],
-      },
-    ];
-  },
-
   images: {
+    // Serve Next.js-optimized images from these external hostnames.
+    // Each entry is as specific as possible (no wildcard hostnames).
     remotePatterns: [
-      { protocol: "https", hostname: "sheatwork.com",              pathname: "/**" },
-      { protocol: "http",  hostname: "sheatwork.com",              pathname: "/**" },
-      { protocol: "https", hostname: "images.unsplash.com",        pathname: "/**" },
-      { protocol: "https", hostname: "res.cloudinary.com",         pathname: "/**" },
-      { protocol: "https", hostname: "encrypted-tbn0.gstatic.com", pathname: "/**" },
+      // sheatwork.com assets — allow both http and https
+      // (http kept for legacy CDN URLs already in the DB)
+      {
+        protocol: "https",
+        hostname: "sheatwork.com",
+        pathname: "/**",
+      },
+      {
+        protocol: "http",
+        hostname: "sheatwork.com",
+        pathname: "/**",
+      },
+      // Stock photography
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+        pathname: "/**",
+      },
+      // Cloudinary (uploaded media / transformed images)
+      {
+        protocol: "https",
+        hostname: "res.cloudinary.com",
+        pathname: "/**",
+      },
+      // Google encrypted thumbnails (used in press/news content)
+      {
+        protocol: "https",
+        hostname: "encrypted-tbn0.gstatic.com",
+        pathname: "/**",
+      },
     ],
   },
 };
