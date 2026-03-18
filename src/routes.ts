@@ -31,6 +31,7 @@ export const publicApiPrefixes: string[] = [
   "/api/contact-submissions",
   "/api/content",
   "/api/stories",
+  "/api/resources"
 ];
 
 // ── Auth routes (login, register, etc.) ───────────────────────────────────
