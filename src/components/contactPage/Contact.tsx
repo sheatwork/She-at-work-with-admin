@@ -13,10 +13,9 @@ import {
   Mail,
   MapPin,
   Minus,
-  Phone,
   Plus,
   Twitter,
-  Youtube,
+  Youtube
 } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
@@ -257,15 +256,15 @@ export default function ContactPage() {
                 {
                   icon: Mail,
                   label: "Email Us",
-                  value: "hello@sheatwork.com",
-                  link: "mailto:hello@sheatwork.com",
+                  value: "info@sheatwork.com",
+                  link: "mailto:info@sheatwork.com",
                 },
-                {
-                  icon: Phone,
-                  label: "Call Us",
-                  value: "+91 98765 43210",
-                  link: "tel:+919876543210",
-                },
+                // {
+                //   icon: Phone,
+                //   label: "Call Us",
+                //   value: "+91 98765 43210",
+                //   link: "tel:+919876543210",
+                // },
                 {
                   icon: MapPin,
                   label: "Visit Us",
