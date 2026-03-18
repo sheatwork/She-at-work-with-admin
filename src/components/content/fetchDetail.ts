@@ -1,7 +1,16 @@
 // components/content/fetchDetail.ts
 // Server-only. NO "use client". Used by all 5 [slug] detail pages.
+// Same base URL resolution as fetchContent.ts
 
-const BASE = process.env.NEXT_PUBLIC_BASE_URL ?? "";
+function getBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_BASE_URL) {
+    return process.env.NEXT_PUBLIC_BASE_URL;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return "http://localhost:3000";
+}
 
 export type ApiTag = { id: string; name: string; slug: string };
 
@@ -33,7 +42,7 @@ export type ContentDetail = {
   // News extras
   source?: string | null;
   sourceType?: string | null;
-  // Press extras (images extracted client-side from content HTML)
+  // Press extras
   galleryImages?: string[] | null;
 };
 
@@ -60,21 +69,30 @@ export type DetailApiResponse = {
 
 /**
  * Fetch a single content item by slug.
- * ISR revalidate = 300s. Returns null on 404/error; page calls notFound().
+ * ISR revalidate = 300s + cache tag for instant admin invalidation.
+ * Call revalidateTag(`content-${slug}`) from admin server action after saving.
  */
 export async function fetchContentDetail(slug: string): Promise<DetailApiResponse | null> {
   try {
-    const res = await fetch(`${BASE}/api/content/${slug}`, {
-      next: { revalidate: 300 },
+    const base = getBaseUrl();
+    const res = await fetch(`${base}/api/content/${slug}`, {
+      next: {
+        revalidate: 300,
+        tags: [`content-${slug}`],
+      },
+      signal: AbortSignal.timeout(8000),
     });
+
     if (!res.ok) return null;
-    return res.json();
+
+    const data = await res.json().catch(() => null);
+    return data;
   } catch {
     return null;
   }
 }
 
-// ── Shared server-safe utilities ─────────────────────────────────────────────
+// ── Shared server-safe utilities ──────────────────────────────────────────────
 
 export function formatDate(iso: string | null): string {
   if (!iso) return "";
@@ -95,7 +113,7 @@ export function cleanText(text: string | null): string {
     .trim();
 }
 
-// ── Event helpers (pure functions, no DOM/window) ────────────────────────────
+// ── Event helpers ─────────────────────────────────────────────────────────────
 
 export function extractEventCategory(categoryName: string | null, content: string): string {
   if (categoryName) return categoryName;
@@ -171,7 +189,6 @@ export function extractEventPrice(content: string): string {
   return "Contact for details";
 }
 
-// Press: strip WordPress block comments + gallery shortcodes from HTML
 export function processWordPressContent(content: string | null): string {
   if (!content) return "<p>Content not available</p>";
   return content
@@ -179,7 +196,6 @@ export function processWordPressContent(content: string | null): string {
     .replace(/\[gallery[^\]]*\]/g, "");
 }
 
-// Press: extract <img> src values from content HTML (server-safe regex, no DOM)
 export function extractGalleryImages(content: string): string[] {
   const images: string[] = [];
   const re = /<img[^>]+src="([^">]+)"/g;
