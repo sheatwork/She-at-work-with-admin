@@ -8,14 +8,14 @@ const footerLinks = {
     { name: "Blogs", href: "/blogs" },
     { name: "Entrechat", href: "/entrechat" },
     { name: "Events", href: "/events" },
-     { name: "Getting Started", href: "/gettingstarted" },
   ],
   company: [
     { name: "About Us", href: "/about" },
     { name: "Contact Us", href: "/contact" },
     { name: "Share Your Story", href: "/share-your-story" },
-    { name: "Advertise", href: "/advertise" },
-    { name: "Partner With Us", href: "/partner" },
+    // { name: "Advertise", href: "/advertise" },
+    // { name: "Partner With Us", href: "/partner" },
+      { name: "Getting Started", href: "/gettingstarted" },
       { name: "FAQs", href: "/contact" },
   ],
  

@@ -1,11 +1,11 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { ChevronDown, Menu, X } from "lucide-react";
+import { Menu, Search, X, ChevronDown } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const navLinks = [
   { name: "Home", href: "/" },
@@ -267,9 +267,9 @@ export const Navbar = () => {
             </Link>
 
             {/* SEARCH */}
-            {/* <button className="text-muted-foreground hover:text-accent transition-colors">
+            <button className="text-muted-foreground hover:text-accent transition-colors">
               <Search className="h-5 w-5" />
-            </button> */}
+            </button>
 
             {/* CTA */}
             <Button className="px-6 py-2.5 rounded-xl font-semibold bg-accent text-accent-foreground hover:bg-accent/90 transition-all">

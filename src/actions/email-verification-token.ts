@@ -13,7 +13,9 @@ export async function createEmailVerificationToken(
   data: EmailVerificationTokenData
 ) {
   try {
-
+    console.log(
+      `Creating email-verification-token for user with email: ${data.email}`
+    );
     const results = await db
       .insert(EmailVerificationTokenTable)
       .values({

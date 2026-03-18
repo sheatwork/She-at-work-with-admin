@@ -44,28 +44,43 @@ const Cta = () => {
           transition={{ duration: 0.6, delay: 0.2 }}
           className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center"
         >
+          {/* Primary Button */}
+          <Button
+            className="
+              h-10 sm:h-12
+              bg-white text-primary
+              font-semibold
+              px-6 sm:px-8
+              text-sm sm:text-base
+              transition-all duration-300
+              hover:-translate-y-1
+              hover:shadow-[0_12px_30px_rgba(255,255,255,0.35)]
+              active:scale-95
+            "
+          >
+            Become a Member
+          </Button>
 
-
-<Button
-  variant="outline"
-  onClick={() => window.open("https://www.instagram.com/she_at_work", "_blank")}
-  className="
-    group
-    h-10 sm:h-12
-    border-2 border-white
-    text-black
-    hover:bg-white/10
-    font-semibold
-    px-6 sm:px-8
-    text-sm sm:text-base
-    transition-all duration-300
-    hover:-translate-y-1
-    active:scale-95
-  "
->
-  Know More 
-  <ArrowRight className="ml-2 h-3 w-3 sm:h-4 sm:w-4 transition-transform duration-300 group-hover:translate-x-1.5" />
-</Button>
+          {/* Secondary Button */}
+          <Button
+            variant="outline"
+            className="
+              group
+              h-10 sm:h-12
+              border-2 border-white
+              text-black
+              hover:bg-white/10
+              font-semibold
+              px-6 sm:px-8
+              text-sm sm:text-base
+              transition-all duration-300
+              hover:-translate-y-1
+              active:scale-95
+            "
+          >
+            Partner With Us
+            <ArrowRight className="ml-2 h-3 w-3 sm:h-4 sm:w-4 transition-transform duration-300 group-hover:translate-x-1.5" />
+          </Button>
         </motion.div>
       </div>
     </section>
