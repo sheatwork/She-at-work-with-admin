@@ -66,6 +66,7 @@ export type BaseApiResponse = {
   categories:          Category[];
   readingTimes:        string[];
   suggestionCandidates?: SuggestionCandidate[];
+   hasMore:             boolean;   // ← NEW: true if more pages exist (replaces COUNT dependency)
 };
 
 export type EntreChatApiResponse = BaseApiResponse & {
