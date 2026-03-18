@@ -1,7 +1,3 @@
-// components/content/fetchContent.ts
-// Server-only fetch helper for content listing pages.
-// Updated to handle the new hasMore-based pagination from the optimized API.
-
 import type { BaseApiResponse, ContentType, EntreChatApiResponse } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_BASE_URL ?? "";
