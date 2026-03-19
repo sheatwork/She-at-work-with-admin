@@ -27,7 +27,7 @@ async function sendEmail(subject: string, content: string) {
 
   await transporter.sendMail({
     from: `SheAtWork Backup <${process.env.MAIL_USERNAME}>`,
-    to: process.env.BACKUP_NOTIFY_EMAIL,
+    to: process.env.ADMIN_MAIL_USERNAME,
     subject,
     html: content
   });
