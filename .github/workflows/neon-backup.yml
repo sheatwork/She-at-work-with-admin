@@ -26,4 +26,4 @@ jobs:
           MAIL_PORT: ${{ secrets.MAIL_PORT }}
           MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
           MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
-          BACKUP_NOTIFY_EMAIL: ${{ secrets.BACKUP_NOTIFY_EMAIL }}
+          BACKUP_NOTIFY_EMAIL: ${{ secrets.ADMIN_MAIL_USERNAME }}
