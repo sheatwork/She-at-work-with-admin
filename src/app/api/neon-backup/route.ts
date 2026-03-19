@@ -1,15 +1,9 @@
-import "dotenv/config";
 import dayjs from "dayjs";
 import nodemailer from "nodemailer";
 
-const API_KEY = process.env.NEON_API_KEY;
-const PROJECT_ID = process.env.NEON_PROJECT_ID;
+const API_KEY = process.env.NEON_API_KEY!;
+const PROJECT_ID = process.env.NEON_PROJECT_ID!;
 const BASE_BRANCH = process.env.NEON_BASE_BRANCH || "production";
-
-if (!API_KEY || !PROJECT_ID) {
-  console.error("❌ Missing NEON_API_KEY or NEON_PROJECT_ID");
-  process.exit(1);
-}
 
 const current = dayjs().format("YYYY-MM");
 const previous = dayjs().subtract(1, "month").format("YYYY-MM");
@@ -19,7 +13,7 @@ const oldBranch = `backup-${previous}`;
 
 const baseUrl = `https://console.neon.tech/api/v2/projects/${PROJECT_ID}`;
 
-async function sendEmail(subject, content) {
+async function sendEmail(subject: string, content: string) {
   const transporter = nodemailer.createTransport({
     host: process.env.MAIL_HOST,
     port: Number(process.env.MAIL_PORT),
@@ -31,8 +25,8 @@ async function sendEmail(subject, content) {
   });
 
   await transporter.sendMail({
-    from: `SheAtWork Backup  <${process.env.MAIL_USERNAME}>`,
-    to: process.env.ADMIN_MAIL_USERNAME,
+    from: `SheAtWork Backup <${process.env.MAIL_USERNAME}>`,
+    to: process.env.BACKUP_NOTIFY_EMAIL,
     subject,
     html: content
   });
@@ -53,10 +47,10 @@ async function getBranches() {
 async function createBranch() {
   const data = await getBranches();
 
-  const parent = data.branches.find(b => b.name === BASE_BRANCH);
+  const parent = data.branches.find((b: any) => b.name === BASE_BRANCH);
   if (!parent) throw new Error(`Base branch "${BASE_BRANCH}" not found`);
 
-  const exists = data.branches.find(b => b.name === newBranch);
+  const exists = data.branches.find((b: any) => b.name === newBranch);
   if (exists) {
     console.log("⚠️ Backup already exists");
     return false;
@@ -87,7 +81,7 @@ async function createBranch() {
 
 async function deleteOldBranch() {
   const data = await getBranches();
-  const branch = data.branches.find(b => b.name === oldBranch);
+  const branch = data.branches.find((b: any) => b.name === oldBranch);
 
   if (!branch) {
     console.log("ℹ️ No old backup");
@@ -107,9 +101,9 @@ async function deleteOldBranch() {
   console.log("🗑 Old backup deleted");
 }
 
-async function run() {
+export async function GET() {
   try {
-    console.log("📦 Backup started");
+    console.log("📦 Neon backup cron started");
 
     const created = await createBranch();
     await deleteOldBranch();
@@ -124,8 +118,9 @@ async function run() {
       `
     );
 
-    console.log("🎯 Backup process completed");
-  } catch (e) {
+    return Response.json({ success: true });
+
+  } catch (e: any) {
     console.error("❌ Backup failed:", e.message);
 
     await sendEmail(
@@ -137,8 +132,6 @@ async function run() {
       `
     );
 
-    process.exit(1);
+    return Response.json({ error: e.message }, { status: 500 });
   }
 }
-
-run();
