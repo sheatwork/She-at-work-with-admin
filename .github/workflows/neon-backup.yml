@@ -1,0 +1,29 @@
+name: Neon Backup
+
+on:
+  workflow_dispatch:   # manual run
+  schedule:
+    - cron: "*/10 * * * *"   # test every 15 min (temporary)
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm install dayjs nodemailer
+
+      - name: Run backup script
+        run: node neon-backup.mjs
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+          NEON_BASE_BRANCH: ${{ secrets.NEON_BASE_BRANCH }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          BACKUP_NOTIFY_EMAIL: ${{ secrets.BACKUP_NOTIFY_EMAIL }}
