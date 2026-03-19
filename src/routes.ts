@@ -31,7 +31,8 @@ export const publicApiPrefixes: string[] = [
   "/api/contact-submissions",
   "/api/content",
   "/api/stories",
-  "/api/resources"
+  "/api/resources",
+  "/api/neon-backup"
 ];
 
 // ── Auth routes (login, register, etc.) ───────────────────────────────────
