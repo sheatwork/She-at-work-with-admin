@@ -1,16 +1,36 @@
-// next.config.ts
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["jsdom"],
 
-  // Force Vercel's CDN to cache content API responses.
-  // Without this, Vercel ignores Cache-Control headers set inside route handlers
-  // for dynamic routes. This config applies them at the infrastructure level.
+  // ✅ Prevent trailing slash SEO duplication
+  trailingSlash: false,
+
+  // ✅ Enable compression (performance)
+  compress: true,
+
+  // ✅ Important for SEO migration from WP
+  async redirects() {
+    return [
+      // WordPress category → new blogs
+      {
+        source: "/category/:slug*",
+        destination: "/blogs/:slug*",
+        permanent: true,
+      },
+
+      // WP year permalink → blog
+      {
+        source: "/:year/:month/:slug",
+        destination: "/blogs/:slug",
+        permanent: true,
+      },
+    ];
+  },
+
   async headers() {
     return [
       {
-        // Content listing API — cache 60s, serve stale for 5 min while revalidating
         source: "/api/content",
         headers: [
           {
@@ -20,7 +40,6 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Content detail API — cache 5 min, serve stale for 10 min
         source: "/api/content/:slug*",
         headers: [
           {
@@ -34,11 +53,9 @@ const nextConfig: NextConfig = {
 
   images: {
     remotePatterns: [
-      { protocol: "https", hostname: "sheatwork.com",              pathname: "/**" },
-      { protocol: "http",  hostname: "sheatwork.com",              pathname: "/**" },
-      { protocol: "https", hostname: "images.unsplash.com",        pathname: "/**" },
-      { protocol: "https", hostname: "res.cloudinary.com",         pathname: "/**" },
-      { protocol: "https", hostname: "encrypted-tbn0.gstatic.com", pathname: "/**" },
+      { protocol: "https", hostname: "sheatwork.com", pathname: "/**" },
+      { protocol: "https", hostname: "images.unsplash.com", pathname: "/**" },
+      { protocol: "https", hostname: "res.cloudinary.com", pathname: "/**" },
     ],
   },
 };
