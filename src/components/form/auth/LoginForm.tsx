@@ -1,6 +1,6 @@
 "use client";
 
-import { EyeOff, Eye } from "lucide-react";
+import { loginUser } from "@/actions/loginUser";
 import {
   Form,
   FormControl,
@@ -9,18 +9,16 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { LoginSchema } from "@/validaton-schema";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Eye, EyeOff, Sparkles } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { Button } from "@/components/ui/button";
-import Image from "next/image";
-import { loginUser } from "@/actions/loginUser";
-import { FormSuccess } from "../form-success";
 import { FormError } from "../form-error";
-import { LoginSchema } from "@/validaton-schema";
-import { Sparkles } from "lucide-react";
+import { FormSuccess } from "../form-success";
 
 function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
@@ -232,7 +230,7 @@ function LoginForm() {
                   )}
                 />
 
-                <div className="flex items-center justify-between">
+                {/* <div className="flex items-center justify-between">
                   <label className="flex items-center cursor-pointer group">
                     <input
                       type="checkbox"
@@ -251,7 +249,7 @@ function LoginForm() {
                   >
                     <Link href="/auth/forgot-password">Forgot password?</Link>
                   </Button>
-                </div>
+                </div> */}
 
                 <FormError message={error} />
                 <FormSuccess message={success} />
@@ -290,26 +288,7 @@ function LoginForm() {
                   )}
                 </button>
 
-                <div className="relative my-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-[#D5B5A9]"></div>
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-4 bg-white text-[#2C2A2D]/50">or</span>
-                  </div>
-                </div>
-
-                <div className="text-center">
-                  <Link
-                    href="/auth/register"
-                    className="text-sm text-[#2C2A2D]/60 hover:text-[#2C2A2D] transition-colors"
-                  >
-                    Don&apos;t have an account?{" "}
-                    <span className="text-[#CF2554] hover:text-[#E64B78] font-semibold">
-                      Create an account
-                    </span>
-                  </Link>
-                </div>
+               
               </form>
             </Form>
           </div>
