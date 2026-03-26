@@ -6,7 +6,15 @@ import * as schema from "./schema";
 
 const isProduction = process.env.NODE_ENV === "production";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Optimized connection pool configuration for high traffic
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Optimal pool size for Vercel serverless functions
+  max: 10,                    // Maximum number of connections
+  min: 2,                     // Minimum number of connections
+  idleTimeoutMillis: 30000,   // Close idle connections after 30 seconds
+  connectionTimeoutMillis: 5000, // Connection timeout: 5 seconds
+});
 export const db = drizzle(pool, {
   schema,
   logger: !isProduction,
