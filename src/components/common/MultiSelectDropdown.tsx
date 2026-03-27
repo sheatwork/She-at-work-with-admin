@@ -106,7 +106,7 @@ export const MultiSelectDropdown = ({
                   selectedValues.includes(option) ? "bg-primary/10 text-primary" : ""
                 }`}
               >
-                <span className="text-sm truncate">{option}</span>
+                <span className="text-sm truncate capitalize">{option}</span>
                 {selectedValues.includes(option) && <Check className="h-4 w-4" />}
               </button>
             ))}
