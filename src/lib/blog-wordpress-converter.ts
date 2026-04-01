@@ -1,9 +1,4 @@
 // lib/blog-wordpress-converter.ts
-// ✅ Uses browser-only DOMPurify (not isomorphic-dompurify)
-// Safe because BlogPostContent is "use client" — this never runs on the server.
-// isomorphic-dompurify pulls in jsdom which uses ESM-only packages that
-// crash Next.js 15 SSR with ERR_REQUIRE_ESM.
-
 import DOMPurify from "dompurify";
 
 export class BlogWordPressConverter {
@@ -23,11 +18,13 @@ export class BlogWordPressConverter {
       c = this.formatParagraphs(c);
       c = this.finalCleanup(c);
 
-      // ✅ DOMPurify runs only in browser — safe for "use client" components
-      c = DOMPurify.sanitize(c, {
-        ADD_TAGS: ["iframe"],
-        ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "target", "rel"],
-      });
+      // Guard: DOMPurify requires window — only run in browser
+      if (typeof window !== "undefined") {
+        c = DOMPurify.sanitize(c, {
+          ADD_TAGS: ["iframe"],
+          ADD_ATTR: ["allow", "allowfullscreen", "frameborder", "target", "rel"],
+        });
+      }
 
       return c;
     } catch (err) {
@@ -45,26 +42,28 @@ export class BlogWordPressConverter {
 
   private static decodeEntities(c: string): string {
     return c
-      .replace(/&amp;/g,   "&")
-      .replace(/&nbsp;/g,  " ")
-      .replace(/&lt;/g,    "<")
-      .replace(/&gt;/g,    ">")
-      .replace(/&quot;/g,  '"')
+      .replace(/&amp;/g, "&")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
       .replace(/&#8217;/g, "\u2019")
       .replace(/&#8216;/g, "\u2018")
       .replace(/&#8220;/g, "\u201C")
       .replace(/&#8221;/g, "\u201D")
       .replace(/&#8211;/g, "\u2013")
       .replace(/&#8212;/g, "\u2014")
-      .replace(/&#038;/g,  "&")
-      .replace(/&hellip;/g,"…");
+      .replace(/&#038;/g, "&")
+      .replace(/&hellip;/g, "…");
   }
 
   private static formatHashtags(c: string): string {
     return c.replace(
       /<p[^>]*>(\s*#[A-Za-z0-9#]+\s*(?:#[A-Za-z0-9#]+\s*)*)<\/p>/gi,
       (_, hashtags) => {
-        const tags = hashtags.trim().split(/\s+/)
+        const tags = hashtags
+          .trim()
+          .split(/\s+/)
           .map((t: string) => `<span class="blog-hashtag">${t}</span>`)
           .join(" ");
         return `<div class="blog-hashtag-container">${tags}</div>`;
@@ -74,43 +73,62 @@ export class BlogWordPressConverter {
 
   private static formatResourceLists(c: string): string {
     return c
-      .replace(/<li[^>]*>\s*<strong>(.*?)<\/strong>(.*?)<\/li>/gi,
+      .replace(
+        /<li[^>]*>\s*<strong>(.*?)<\/strong>(.*?)<\/li>/gi,
         (_, bold, rest) =>
-          `<li class="blog-resource-item"><span class="blog-resource-title">${bold}</span>${rest}</li>`)
-      .replace(/<p[^>]*>\s*[•●]\s*<strong>(.*?)<\/strong>(.*?)<\/p>/gi,
+          `<li class="blog-resource-item"><span class="blog-resource-title">${bold}</span>${rest}</li>`
+      )
+      .replace(
+        /<p[^>]*>\s*[•●]\s*<strong>(.*?)<\/strong>(.*?)<\/p>/gi,
         (_, bold, rest) =>
-          `<div class="blog-resource-inline"><span class="blog-resource-title">${bold}</span>${rest}</div>`);
+          `<div class="blog-resource-inline"><span class="blog-resource-title">${bold}</span>${rest}</div>`
+      );
   }
 
   private static formatStatistics(c: string): string {
     return c
       .replace(/(\d+(?:\.\d+)?%)/g, '<span class="blog-stat">$1</span>')
-      .replace(/([A-Z]?[$€£]\d+(?:[.,]\d+)?(?:\s*(?:million|billion|thousand|trillion))?)/gi,
-        '<span class="blog-currency">$1</span>');
+      .replace(
+        /([A-Z]?[$€£]\d+(?:[.,]\d+)?(?:\s*(?:million|billion|thousand|trillion))?)/gi,
+        '<span class="blog-currency">$1</span>'
+      );
   }
 
   private static handleEmbeds(c: string): string {
     return c
-      .replace(/https:\/\/(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/g,
-        (_, id) => `<div class="blog-video-container"><iframe src="https://www.youtube.com/embed/${id}" frameborder="0" allowfullscreen></iframe></div>`)
-      .replace(/https:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/g,
-        (_, id) => `<div class="blog-video-container"><iframe src="https://www.youtube.com/embed/${id}" frameborder="0" allowfullscreen></iframe></div>`)
-      .replace(/<a href="([^"]+)">(.*?)<\/a>/gi,
-        '<a href="$1" target="_blank" rel="noopener noreferrer" class="blog-link">$2</a>');
+      .replace(
+        /https:\/\/(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/g,
+        (_, id) =>
+          `<div class="blog-video-container"><iframe src="https://www.youtube.com/embed/${id}" frameborder="0" allowfullscreen></iframe></div>`
+      )
+      .replace(
+        /https:\/\/(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/g,
+        (_, id) =>
+          `<div class="blog-video-container"><iframe src="https://www.youtube.com/embed/${id}" frameborder="0" allowfullscreen></iframe></div>`
+      )
+      .replace(
+        /<a href="([^"]+)">(.*?)<\/a>/gi,
+        '<a href="$1" target="_blank" rel="noopener noreferrer" class="blog-link">$2</a>'
+      );
   }
 
   private static formatSectionHeaders(c: string): string {
     return c
-      .replace(/<p[^>]*>\s*<strong>\s*In Focus:\s*([^<]+)<\/strong>\s*<\/p>/gi,
-        '<div class="blog-section-header"><span class="blog-section-tag">IN FOCUS</span><h2>$1</h2></div>')
-      .replace(/<p[^>]*>\s*<strong>\s*On Stage:\s*([^<]+)<\/strong>\s*<\/p>/gi,
-        '<div class="blog-section-header"><span class="blog-section-tag">ON STAGE</span><h2>$1</h2></div>');
+      .replace(
+        /<p[^>]*>\s*<strong>\s*In Focus:\s*([^<]+)<\/strong>\s*<\/p>/gi,
+        '<div class="blog-section-header"><span class="blog-section-tag">IN FOCUS</span><h2>$1</h2></div>'
+      )
+      .replace(
+        /<p[^>]*>\s*<strong>\s*On Stage:\s*([^<]+)<\/strong>\s*<\/p>/gi,
+        '<div class="blog-section-header"><span class="blog-section-tag">ON STAGE</span><h2>$1</h2></div>'
+      );
   }
 
   private static formatQuotes(c: string): string {
     return c.replace(
       /<p[^>]*>\s*["""]([^"""]+)["""]\s*<\/p>/gi,
-      (_, q) => `<figure class="blog-quote"><blockquote>${q.trim()}</blockquote></figure>`
+      (_, q) =>
+        `<figure class="blog-quote"><blockquote>${q.trim()}</blockquote></figure>`
     );
   }
 
@@ -150,13 +168,22 @@ export class BlogWordPressConverter {
 
   static extractExcerpt(content: string, maxLength = 160): string {
     if (!content) return "";
-    const text = content.replace(/<[^>]*>/g, " ").replace(/#[A-Za-z0-9#]+\s*/g, "").replace(/\s+/g, " ").trim();
-    return text.length <= maxLength ? text : text.substring(0, maxLength).trim() + "…";
+    const text = content
+      .replace(/<[^>]*>/g, " ")
+      .replace(/#[A-Za-z0-9#]+\s*/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text.length <= maxLength
+      ? text
+      : text.substring(0, maxLength).trim() + "…";
   }
 
   static calculateReadTime(content: string): string {
     if (!content) return "1 min read";
-    const words = content.replace(/<[^>]*>/g, " ").split(/\s+/).filter((w) => w.length > 0).length;
+    const words = content
+      .replace(/<[^>]*>/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 0).length;
     return `${Math.max(1, Math.ceil(words / 200))} min read`;
   }
 
@@ -165,7 +192,13 @@ export class BlogWordPressConverter {
     try {
       const d = new Date(dateString);
       if (isNaN(d.getTime())) return "Date unavailable";
-      return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-    } catch { return "Date unavailable"; }
+      return d.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    } catch {
+      return "Date unavailable";
+    }
   }
 }
