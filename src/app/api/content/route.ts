@@ -1,24 +1,24 @@
-import { NextRequest, NextResponse } from "next/server";
+/*eslint-disable @typescript-eslint/no-explicit-any */
 import { db } from "@/db";
 import {
-  ContentTable,
   CategoriesTable,
-  TagsTable,
+  ContentTable,
   ContentTagsTable,
+  TagsTable,
 } from "@/db/schema";
 import {
   and,
-  eq,
-  ilike,
-  or,
-  gte,
-  lte,
-  desc,
-  inArray,
-  sql,
   count,
-  SQL,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  lte,
+  sql,
+  SQL
 } from "drizzle-orm";
+import { NextRequest, NextResponse } from "next/server";
 
 export const preferredRegion = "sin1";
 
@@ -120,9 +120,9 @@ const CONTENT_HEADERS = {
 const META_HEADERS = {
   "Cache-Control": "public, s-maxage=600, stale-while-revalidate=3600",
 };
-const SUGGESTIONS_HEADERS = {
-  "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
-};
+// const SUGGESTIONS_HEADERS = {
+//   "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
+// };
 
 // ─────────────────────────────────────────────────────────────
 // MAIN HANDLER
