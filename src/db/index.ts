@@ -21,33 +21,33 @@
 // });
 
 
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
-import * as schema from "./schema";
-
-export const db = drizzle(neon(process.env.DATABASE_URL!), {
-  schema,
-  logger: process.env.NODE_ENV !== "production",
-});
-
-
-// import { Pool, neonConfig } from "@neondatabase/serverless";
-// import { drizzle } from "drizzle-orm/neon-serverless";
-// import ws from "ws";
+// import { neon } from "@neondatabase/serverless";
+// import { drizzle } from "drizzle-orm/neon-http";
 // import * as schema from "./schema";
 
-// // Required for WebSocket connections in Node.js (Vercel)
-// neonConfig.webSocketConstructor = ws;
-
-// // Enable connection caching across warm invocations
-// neonConfig.fetchConnectionCache = true;
-
-// const pool = new Pool({
-//   connectionString: process.env.DATABASE_URL,
-//   max: 5, // keep low for serverless — each instance gets its own pool
-// });
-
-// export const db = drizzle(pool, {
+// export const db = drizzle(neon(process.env.DATABASE_URL!), {
 //   schema,
 //   logger: process.env.NODE_ENV !== "production",
 // });
+
+
+import { Pool, neonConfig } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-serverless";
+import ws from "ws";
+import * as schema from "./schema";
+
+// Required for WebSocket connections in Node.js (Vercel)
+neonConfig.webSocketConstructor = ws;
+
+// Enable connection caching across warm invocations
+neonConfig.fetchConnectionCache = true;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 5, // keep low for serverless — each instance gets its own pool
+});
+
+export const db = drizzle(pool, {
+  schema,
+  logger: process.env.NODE_ENV !== "production",
+});
