@@ -1,56 +1,108 @@
 // components/content/fetchContent.ts
-// Server-only fetch helper for content listing pages.
+// BEFORE: Server component → HTTP → /api/content → DB  (2 network hops)
+// AFTER:  Server component → DB directly              (1 network hop)
 //
-// WHY RELATIVE URLs BREAK ON VERCEL:
-// Relative URLs like `/api/content` work fine in the browser because the
-// browser knows the current origin. But on the server (during ISR render),
-// there is no "current origin" — the Node.js process doesn't know what
-// domain it's running on. So `/api/content` throws "Invalid URL" or fetches nothing.
-//
-// CORRECT SOLUTION — resolve base URL in this priority order:
-//   1. NEXT_PUBLIC_BASE_URL (your custom env var — set this in Vercel)
-//   2. VERCEL_URL (auto-set by Vercel on every deployment)
-//   3. localhost:3000 (local dev fallback)
-//
-// VERCEL_URL is always available on Vercel without any configuration.
-// It looks like: your-project-abc123.vercel.app
-// It does NOT include https:// so we prepend it.
-// It is NOT available in the browser (no NEXT_PUBLIC_ prefix) — server only.
+// This eliminates an entire HTTP roundtrip on every ISR/SSR render,
+// saving CPU and ~100–300ms latency per page load.
 
+import { db } from "@/db";
+import { ContentTable, CategoriesTable, TagsTable, ContentTagsTable } from "@/db/schema";
+import { and, eq, desc, inArray, count, sql } from "drizzle-orm";
 import type { BaseApiResponse, ContentType, EntreChatApiResponse } from "./types";
-
-function getBaseUrl(): string {
-  // Priority 1: your explicit env var (set this in Vercel dashboard)
-  if (process.env.NEXT_PUBLIC_BASE_URL) {
-    return process.env.NEXT_PUBLIC_BASE_URL;
-  }
-  // Priority 2: Vercel auto-injects this on every deployment
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  // Priority 3: local dev
-  return "http://localhost:3000";
-}
 
 export async function fetchInitialContent(
   contentType: ContentType,
   limit = 12,
 ): Promise<BaseApiResponse | EntreChatApiResponse | null> {
   try {
-    const base = getBaseUrl();
-    const res = await fetch(
-      `${base}/api/content?contentType=${contentType}&page=1&limit=${limit}`,
-      {
-        next: { revalidate: 300 },
-        signal: AbortSignal.timeout(8000),
-      },
-    );
+    const [rows, [{ total }], categories] = await Promise.all([
+      db
+        .select({
+          id: ContentTable.id,
+          title: ContentTable.title,
+          slug: ContentTable.slug,
+          summary: ContentTable.summary,
+          featuredImage: ContentTable.featuredImage,
+          externalUrl: ContentTable.externalUrl,
+          readingTime: ContentTable.readingTime,
+          publishedAt: ContentTable.publishedAt,
+          authorName: ContentTable.authorName,
+          categoryId: ContentTable.categoryId,
+          categoryName: CategoriesTable.name,
+          categorySlug: CategoriesTable.slug,
+        })
+        .from(ContentTable)
+        .leftJoin(CategoriesTable, eq(ContentTable.categoryId, CategoriesTable.id))
+        .where(
+          and(
+            eq(ContentTable.contentType, contentType),
+            eq(ContentTable.status, "PUBLISHED"),
+          ),
+        )
+        .orderBy(desc(ContentTable.publishedAt))
+        .limit(limit),
 
-    if (!res.ok) return null;
+      db
+        .select({ total: count() })
+        .from(ContentTable)
+        .where(
+          and(
+            eq(ContentTable.contentType, contentType),
+            eq(ContentTable.status, "PUBLISHED"),
+          ),
+        ),
 
-    const data = await res.json().catch(() => null);
-    return data;
-  } catch {
+      db
+        .select({
+          id: CategoriesTable.id,
+          name: CategoriesTable.name,
+          slug: CategoriesTable.slug,
+        })
+        .from(CategoriesTable)
+        .where(
+          and(
+            eq(CategoriesTable.contentType, contentType),
+            eq(CategoriesTable.isActive, true),
+          ),
+        )
+        .orderBy(CategoriesTable.name),
+    ]);
+
+    // Tags for first page
+    const tagMap: Record<string, { id: string; name: string; slug: string }[]> = {};
+    if (rows.length > 0) {
+      const contentIds = rows.map((r) => r.id);
+      const tagRows = await db
+        .select({
+          contentId: ContentTagsTable.contentId,
+          tagId: TagsTable.id,
+          tagName: TagsTable.name,
+          tagSlug: TagsTable.slug,
+        })
+        .from(ContentTagsTable)
+        .innerJoin(TagsTable, eq(ContentTagsTable.tagId, TagsTable.id))
+        .where(inArray(ContentTagsTable.contentId, contentIds));
+
+      for (const t of tagRows) {
+        if (!tagMap[t.contentId]) tagMap[t.contentId] = [];
+        tagMap[t.contentId].push({ id: t.tagId, name: t.tagName, slug: t.tagSlug });
+      }
+    }
+
+    const totalItems = Number(total);
+
+    return {
+      items: rows.map((r) => ({ ...r, tags: tagMap[r.id] ?? [] })),
+      totalItems,
+      totalPages: Math.ceil(totalItems / limit),
+      hasMore: rows.length < totalItems,
+      page: 1,
+      limit,
+      categories,
+      readingTimes: [],
+    } as BaseApiResponse;
+  } catch (err) {
+    console.error("[fetchInitialContent] Error:", err);
     return null;
   }
 }

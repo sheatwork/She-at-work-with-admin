@@ -21,6 +21,7 @@ import {
 } from "drizzle-orm";
 
 export const preferredRegion = "sin1";
+export const runtime = "nodejs";
 
 type ContentType =
   | "BLOG"
@@ -162,7 +163,9 @@ export async function GET(req: NextRequest) {
     if (searchParams.get("meta") === "1") {
       const cached = getMetaFromCache(contentType);
       const meta = cached ?? (await fetchMeta(contentType));
-      console.log(`[${requestId}] 📚 Meta served from ${cached ? "cache" : "database"}`);
+      console.log(
+        `[${requestId}] 📚 Meta served from ${cached ? "cache" : "database"}`,
+      );
       return NextResponse.json(
         { categories: meta.categories, readingTimes: meta.readingTimes },
         { headers: META_HEADERS },
@@ -173,7 +176,10 @@ export async function GET(req: NextRequest) {
     if (searchParams.get("suggestions") === "1") {
       const q = searchParams.get("q")?.trim() ?? "";
       if (q.length < 2) {
-        return NextResponse.json({ results: [] }, { headers: SUGGESTIONS_HEADERS });
+        return NextResponse.json(
+          { results: [] },
+          { headers: SUGGESTIONS_HEADERS },
+        );
       }
 
       const rows = await db
@@ -186,7 +192,10 @@ export async function GET(req: NextRequest) {
           categoryName: CategoriesTable.name,
         })
         .from(ContentTable)
-        .leftJoin(CategoriesTable, eq(ContentTable.categoryId, CategoriesTable.id))
+        .leftJoin(
+          CategoriesTable,
+          eq(ContentTable.categoryId, CategoriesTable.id),
+        )
         .where(
           and(
             eq(ContentTable.contentType, contentType),
@@ -200,7 +209,10 @@ export async function GET(req: NextRequest) {
         .orderBy(desc(ContentTable.publishedAt))
         .limit(50);
 
-      return NextResponse.json({ results: rows }, { headers: SUGGESTIONS_HEADERS });
+      return NextResponse.json(
+        { results: rows },
+        { headers: SUGGESTIONS_HEADERS },
+      );
     }
 
     // ── Main content listing ──────────────────────────────────────────────────
@@ -211,13 +223,16 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get("search")?.trim() ?? "";
     const categoryParam = searchParams.get("category")?.trim() ?? "";
     const categorySlugs = categoryParam
-      ? categoryParam.split(",").map((s) => s.trim()).filter(Boolean)
+      ? categoryParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
       : [];
     const tagSlug = searchParams.get("tag")?.trim() ?? "";
     const dateFrom = searchParams.get("dateFrom") ?? "";
     const dateTo = searchParams.get("dateTo") ?? "";
 
-    // ── Tag EXISTS subquery (shared between main + count) ─────────────────────
+    // ── Tag EXISTS subquery ───────────────────────────────────────────────────
     const tagExistsSubquery = tagSlug
       ? sql`EXISTS (
           SELECT 1
@@ -229,43 +244,35 @@ export async function GET(req: NextRequest) {
         )`
       : null;
 
-    // ── WHERE conditions for main query (needs category JOIN) ─────────────────
+    // ── WHERE conditions for main query (with category JOIN) ──────────────────
     const mainConditions: SQL<unknown>[] = [
       eq(ContentTable.contentType, contentType),
       eq(ContentTable.status, "PUBLISHED"),
     ];
 
     if (search) {
-      // FIX: Use GIN full-text search instead of ilike for index usage
       mainConditions.push(
-        sql`to_tsvector('english', ${ContentTable.title}) @@ plainto_tsquery('english', ${search})`
+        sql`to_tsvector('english', ${ContentTable.title}) @@ plainto_tsquery('english', ${search})`,
       );
     }
-
     if (dateFrom) {
       mainConditions.push(gte(ContentTable.publishedAt, new Date(dateFrom)));
     }
-
     if (dateTo) {
       const to = new Date(dateTo);
       to.setDate(to.getDate() + 1);
       mainConditions.push(lte(ContentTable.publishedAt, to));
     }
-
     if (categorySlugs.length > 0) {
       mainConditions.push(
         inArray(CategoriesTable.slug, categorySlugs as [string, ...string[]]),
       );
     }
-
     if (tagExistsSubquery) {
       mainConditions.push(tagExistsSubquery);
     }
 
-    // ── WHERE conditions for count query (NO category JOIN needed) ────────────
-    // FIX: Count query had an unnecessary leftJoin to CategoriesTable.
-    // We resolve category slugs to IDs first, then filter by categoryId
-    // directly on the content table — no JOIN required.
+    // ── WHERE conditions for count query (no JOIN needed) ─────────────────────
     const countConditions: SQL<unknown>[] = [
       eq(ContentTable.contentType, contentType),
       eq(ContentTable.status, "PUBLISHED"),
@@ -273,22 +280,18 @@ export async function GET(req: NextRequest) {
 
     if (search) {
       countConditions.push(
-        sql`to_tsvector('english', ${ContentTable.title}) @@ plainto_tsquery('english', ${search})`
+        sql`to_tsvector('english', ${ContentTable.title}) @@ plainto_tsquery('english', ${search})`,
       );
     }
-
     if (dateFrom) {
       countConditions.push(gte(ContentTable.publishedAt, new Date(dateFrom)));
     }
-
     if (dateTo) {
       const to = new Date(dateTo);
       to.setDate(to.getDate() + 1);
       countConditions.push(lte(ContentTable.publishedAt, to));
     }
-
     if (categorySlugs.length > 0) {
-      // Resolve slugs → category IDs via a subquery so count needs no JOIN
       countConditions.push(
         sql`${ContentTable.categoryId} IN (
           SELECT id FROM ${CategoriesTable}
@@ -297,12 +300,11 @@ export async function GET(req: NextRequest) {
         )`,
       );
     }
-
     if (tagExistsSubquery) {
       countConditions.push(tagExistsSubquery);
     }
 
-    // ── Queries ───────────────────────────────────────────────────────────────
+    // ── Build queries (not yet awaited) ───────────────────────────────────────
     const mainQuery = db
       .select({
         id: ContentTable.id,
@@ -325,32 +327,35 @@ export async function GET(req: NextRequest) {
       .limit(limit)
       .offset(offset);
 
-    // FIX: No leftJoin — pure content table scan using composite index
     const countQuery = db
       .select({ total: count() })
       .from(ContentTable)
       .where(and(...countConditions));
 
-    // ── Run main + count + meta in parallel ───────────────────────────────────
+    // ── Run all queries in parallel ───────────────────────────────────────────
     const dbQueryStart = Date.now();
     const cachedMeta = getMetaFromCache(contentType);
 
-    const [rows, [{ total }], meta] = await Promise.all([
+    const [rows, countResult, meta] = await Promise.all([
       mainQuery,
       countQuery,
       cachedMeta ? Promise.resolve(cachedMeta) : fetchMeta(contentType),
     ]);
 
+    const total = countResult[0].total;
     const dbQueryTime = Date.now() - dbQueryStart;
     const metaSource = cachedMeta ? "cache" : "database";
 
     console.log(
-      `[${requestId}] 🗃️ Parallel DB queries done: ${dbQueryTime}ms | rows: ${rows.length} | total: ${total} | meta: ${metaSource}`,
+      `[${requestId}] 🗃️ DB done: ${dbQueryTime}ms | rows: ${rows.length} | total: ${total} | meta: ${metaSource}`,
     );
 
     // ── Tags for this page (single batched query) ─────────────────────────────
     const tagsStart = Date.now();
-    const tagMap: Record<string, { id: string; name: string; slug: string }[]> = {};
+    const tagMap: Record<
+      string,
+      { id: string; name: string; slug: string }[]
+    > = {};
 
     if (rows.length > 0) {
       const contentIds = rows.map((r) => r.id);
@@ -367,7 +372,11 @@ export async function GET(req: NextRequest) {
 
       for (const t of tagRows) {
         if (!tagMap[t.contentId]) tagMap[t.contentId] = [];
-        tagMap[t.contentId].push({ id: t.tagId, name: t.tagName, slug: t.tagSlug });
+        tagMap[t.contentId].push({
+          id: t.tagId,
+          name: t.tagName,
+          slug: t.tagSlug,
+        });
       }
     }
 
