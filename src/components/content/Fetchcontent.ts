@@ -6,8 +6,8 @@
 // saving CPU and ~100–300ms latency per page load.
 
 import { db } from "@/db";
-import { ContentTable, CategoriesTable, TagsTable, ContentTagsTable } from "@/db/schema";
-import { and, eq, desc, inArray, count, sql } from "drizzle-orm";
+import { CategoriesTable, ContentTable, ContentTagsTable, TagsTable } from "@/db/schema";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import type { BaseApiResponse, ContentType, EntreChatApiResponse } from "./types";
 
 export async function fetchInitialContent(
