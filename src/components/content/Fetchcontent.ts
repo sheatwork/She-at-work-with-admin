@@ -1,9 +1,5 @@
 // components/content/fetchContent.ts
-// BEFORE: Server component → HTTP → /api/content → DB  (2 network hops)
-// AFTER:  Server component → DB directly              (1 network hop)
-//
-// This eliminates an entire HTTP roundtrip on every ISR/SSR render,
-// saving CPU and ~100–300ms latency per page load.
+// Server component calls DB directly — no HTTP self-fetch.
 
 import { db } from "@/db";
 import { CategoriesTable, ContentTable, ContentTagsTable, TagsTable } from "@/db/schema";
@@ -18,16 +14,16 @@ export async function fetchInitialContent(
     const [rows, [{ total }], categories] = await Promise.all([
       db
         .select({
-          id: ContentTable.id,
-          title: ContentTable.title,
-          slug: ContentTable.slug,
-          summary: ContentTable.summary,
+          id:           ContentTable.id,
+          title:        ContentTable.title,
+          slug:         ContentTable.slug,
+          summary:      ContentTable.summary,
           featuredImage: ContentTable.featuredImage,
-          externalUrl: ContentTable.externalUrl,
-          readingTime: ContentTable.readingTime,
-          publishedAt: ContentTable.publishedAt,
-          authorName: ContentTable.authorName,
-          categoryId: ContentTable.categoryId,
+          externalUrl:  ContentTable.externalUrl,
+          readingTime:  ContentTable.readingTime,
+          publishedAt:  ContentTable.publishedAt,
+          authorName:   ContentTable.authorName,
+          categoryId:   ContentTable.categoryId,
           categoryName: CategoriesTable.name,
           categorySlug: CategoriesTable.slug,
         })
@@ -54,7 +50,7 @@ export async function fetchInitialContent(
 
       db
         .select({
-          id: CategoriesTable.id,
+          id:   CategoriesTable.id,
           name: CategoriesTable.name,
           slug: CategoriesTable.slug,
         })
@@ -68,16 +64,15 @@ export async function fetchInitialContent(
         .orderBy(CategoriesTable.name),
     ]);
 
-    // Tags for first page
     const tagMap: Record<string, { id: string; name: string; slug: string }[]> = {};
     if (rows.length > 0) {
       const contentIds = rows.map((r) => r.id);
       const tagRows = await db
         .select({
           contentId: ContentTagsTable.contentId,
-          tagId: TagsTable.id,
-          tagName: TagsTable.name,
-          tagSlug: TagsTable.slug,
+          tagId:     TagsTable.id,
+          tagName:   TagsTable.name,
+          tagSlug:   TagsTable.slug,
         })
         .from(ContentTagsTable)
         .innerJoin(TagsTable, eq(ContentTagsTable.tagId, TagsTable.id))
@@ -100,6 +95,7 @@ export async function fetchInitialContent(
       limit,
       categories,
       readingTimes: [],
+      suggestionCandidates: [], // initial load has no search active
     } as BaseApiResponse;
   } catch (err) {
     console.error("[fetchInitialContent] Error:", err);

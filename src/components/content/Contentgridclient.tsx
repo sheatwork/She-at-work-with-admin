@@ -218,31 +218,19 @@ export function ContentGridClient({
       filterState, isEntreChat]);
 
   // ── Trigger fetch when filters change ─────────────────────────────────────
-  useEffect(() => {
-    if (isFirstRender.current) { isFirstRender.current = false; return; }
-
-    const hasActive =
-      filterState.selectedCategorySlugs.length > 0 ||
-      debouncedTag || filterState.selectedReadingTimes.length > 0 ||
-      filterState.dateRange.from || filterState.dateRange.to ||
-      debouncedSearch.length >= 2 ||
-      (isEntreChat && (filterState.selectedIndustrySector || filterState.selectedBusinessStage ||
-        filterState.selectedInterviewFormat || filterState.selectedFounderRegion ||
-        filterState.selectedSuccessFactor || filterState.selectedCountry || filterState.selectedState));
-
-    if (!hasActive && currentPage === 1) return;
-    fetchFiltered();
-    return () => { abortRef.current?.abort(); };
-  }, [
-    currentPage, debouncedSearch, debouncedTag,
-    filterState.selectedCategorySlugs, filterState.selectedReadingTimes,
-    filterState.dateRange.from, filterState.dateRange.to,
-    filterState.selectedIndustrySector, filterState.selectedBusinessStage,
-    filterState.selectedInterviewFormat, filterState.selectedFounderRegion,
-    filterState.selectedSuccessFactor, filterState.selectedCountry, filterState.selectedState,
-    fetchFiltered, isEntreChat,
-  ]);
-
+ useEffect(() => {
+  if (isFirstRender.current) { isFirstRender.current = false; return; }
+  fetchFiltered();
+  return () => { abortRef.current?.abort(); };
+}, [
+  currentPage, debouncedSearch, debouncedTag,
+  filterState.selectedCategorySlugs, filterState.selectedReadingTimes,
+  filterState.dateRange.from, filterState.dateRange.to,
+  filterState.selectedIndustrySector, filterState.selectedBusinessStage,
+  filterState.selectedInterviewFormat, filterState.selectedFounderRegion,
+  filterState.selectedSuccessFactor, filterState.selectedCountry, filterState.selectedState,
+  fetchFiltered, isEntreChat,
+]);
   // ── Clear suggestions when search cleared ─────────────────────────────────
   useEffect(() => {
     if (debouncedSearch.length < 2) { setSearchSuggestions([]); setShowSuggestions(false); }
