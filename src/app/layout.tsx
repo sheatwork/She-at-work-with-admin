@@ -18,9 +18,13 @@ const inter = Inter({
   display: "swap",
 });
 
+// Loaded as a variable font (no `weight` list), like Inter above. One file
+// covers weights 200-800. With a fixed weight list, Google Fonts intermittently
+// answers with extensionless `fonts.gstatic.com/l/font?kit=...` URLs, which
+// crash next/font's loader in Next 15.1 ("Cannot read properties of null
+// (reading '1')") and fail the build.
 const manrope = Manrope({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
   variable: "--font-heading",
   display: "swap",
 });
