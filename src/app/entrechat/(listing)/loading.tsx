@@ -1,3 +1,6 @@
+// Lives in the (listing) route group on purpose: at the segment root it also
+// wrapped [slug] in Suspense, so detail pages streamed and notFound() was sent
+// (and cached by ISR) as a 200 "soft 404" instead of a real 404.
 // app/news/loading.tsx  (copy to /blogs/loading.tsx and /entrechat/loading.tsx)
 // Next.js shows this INSTANTLY while the server page is building.
 // Users see a skeleton instead of a blank white screen.

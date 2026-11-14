@@ -42,8 +42,11 @@ export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params;
-  const data = await fetchContentDetailFromDB(slug);
-  if (!data) return { title: "Blog | She At Work" };
+  const data = await fetchContentDetailFromDB(slug, "/blogs");
+  // notFound() here, not a fallback title: metadata resolves before the page
+  // body, and once it has returned normally a later notFound() in the page is
+  // cached by ISR as a 200 "soft 404".
+  if (!data) notFound();
   const t = data.item.title.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&");
   return {
     title: `${t} | She At Work`,
@@ -54,7 +57,7 @@ export async function generateMetadata(
 
 export default async function BlogDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const data = await fetchContentDetailFromDB(slug);
+  const data = await fetchContentDetailFromDB(slug, "/blogs");
   if (!data) notFound();
 
   const { item: blog, related } = data;

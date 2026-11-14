@@ -1,6 +1,7 @@
 // components/content/fetchDetail.ts
 import { cache } from "react";
 import { db } from "@/db";
+import { DETAIL_PREFIXES } from "@/lib/revalidate";
 import {
   CategoriesTable,
   ContentTable,
@@ -81,8 +82,27 @@ function toISOStringOrNull(date: Date | string | null): string | null {
 // Wrapped in React cache() so the call in generateMetadata and the call in the
 // page body share one result per render. Without this every [slug] page ran
 // these ~4 queries twice.
+/** Route prefix ("/blogs", "/about/press-room", ...) → content types it may render. */
+function typesForRoute(routePrefix: string) {
+  return Object.entries(DETAIL_PREFIXES)
+    .filter(([, prefixes]) => prefixes.includes(routePrefix))
+    .map(([type]) => type as (typeof ContentTable.$inferSelect)["contentType"]);
+}
+
+/**
+ * @param slug        content slug
+ * @param routePrefix the detail route asking ("/blogs", "/news", ...). Only rows
+ *                    whose contentType belongs under that route are returned, so
+ *                    /news/<a-blog-slug> is a 404 instead of a duplicate cached
+ *                    copy of the blog post (pure crawl waste, and duplicate
+ *                    content for SEO). Must be a string so cache() can key on it.
+ */
 export const fetchContentDetailFromDB = cache(
-  async (slug: string): Promise<DetailResponse | null> => {
+  async (slug: string, routePrefix: string): Promise<DetailResponse | null> => {
+  const allowedTypes = typesForRoute(routePrefix);
+  if (allowedTypes.length === 0) {
+    throw new Error(`fetchContentDetailFromDB: unknown route prefix ${routePrefix}`);
+  }
   try {
     // ── 1. Fetch main content item ──────────────────────────────────────────
     const [item] = await db
@@ -107,7 +127,8 @@ export const fetchContentDetailFromDB = cache(
       .where(
         and(
           eq(ContentTable.slug, slug),
-          eq(ContentTable.status, "PUBLISHED")
+          eq(ContentTable.status, "PUBLISHED"),
+          inArray(ContentTable.contentType, allowedTypes)
         )
       )
       .limit(1);
