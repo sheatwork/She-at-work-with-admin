@@ -1,7 +1,7 @@
 // This component has NO state, no hooks — safe to use in both server and client trees.
 // The tag onClick is injected optionally from the client wrapper.
 
-import Image from "next/image";
+import { CloudinaryImage } from "@/components/common/CloudinaryImage";
 import Link from "next/link";
 import { ArrowRight, Calendar, Clock, MapPin, User } from "lucide-react";
 
@@ -23,24 +23,6 @@ function isEntreChat(item: BaseContentItem | EntreChatItem): item is EntreChatIt
 export function ContentCard({ item, href, index = 0, onTagClick }: Props) {
   const ec = isEntreChat(item) ? item : null;
 
-  // Helper to optimize Cloudinary URLs
-  const getOptimizedImageUrl = (url: string) => {
-    if (!url) return url;
-    
-    // If it's a Cloudinary URL, add optimization parameters
-    if (url.includes('res.cloudinary.com')) {
-      // Check if URL already has transformations
-      if (!url.includes('/upload/')) return url;
-      
-      const parts = url.split('/upload/');
-      if (parts.length === 2) {
-        // Add width, quality, and auto format
-        return `${parts[0]}/upload/w_640,q_auto,f_auto,c_fill/${parts[1]}`;
-      }
-    }
-    return url;
-  };
-
   return (
     <Link prefetch={false}
       href={href}
@@ -49,14 +31,13 @@ export function ContentCard({ item, href, index = 0, onTagClick }: Props) {
       {/* Image */}
       <div className="relative h-40 sm:h-44 bg-gradient-to-br from-muted to-secondary flex-shrink-0 overflow-hidden">
         {item.featuredImage ? (
-          <Image
-            src={getOptimizedImageUrl(item.featuredImage)}
+          <CloudinaryImage
+            src={item.featuredImage}
             alt={item.title}
             fill
             className="object-cover transition-transform duration-500 group-hover:scale-110"
             sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
             loading={index < 4 ? "eager" : "lazy"}
-            unoptimized={true}  // ← ADD THIS LINE
             priority={index < 2} // Add priority for first 2 images
           />
         ) : (

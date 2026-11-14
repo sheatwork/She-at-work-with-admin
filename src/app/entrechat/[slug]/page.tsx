@@ -18,7 +18,7 @@ import {
   ArrowLeft, ArrowRight, Building, Calendar, Clock,
   FileText, Globe, MapPin, Tag, TrendingUp, User, Video,
 } from "lucide-react";
-import Image from "next/image";
+import { CloudinaryImage } from "@/components/common/CloudinaryImage";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -153,7 +153,7 @@ export default async function EntrechatDetailPage({ params }: { params: Promise<
           {interview.featuredImage && (
             <div className="mb-8 rounded-2xl overflow-hidden shadow-lg">
               <div className="relative w-full h-64 sm:h-80 lg:h-[420px]">
-                <Image src={interview.featuredImage} alt={interview.title} fill className="object-cover" priority sizes="(max-width: 896px) 100vw, 896px" />
+                <CloudinaryImage src={interview.featuredImage} alt={interview.title} fill className="object-cover" priority sizes="(max-width: 896px) 100vw, 896px" />
               </div>
             </div>
           )}
@@ -220,7 +220,7 @@ export default async function EntrechatDetailPage({ params }: { params: Promise<
                     className="group bg-card rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-border flex flex-col h-full">
                     <div className="relative h-40 bg-gradient-to-br from-muted to-secondary flex-shrink-0 overflow-hidden">
                       {item.featuredImage
-                        ? <Image src={item.featuredImage} alt={item.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="33vw" />
+                        ? <CloudinaryImage src={item.featuredImage} alt={item.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="33vw" />
                         : <div className="absolute inset-0 bg-gradient-to-r from-primary to-accent flex items-center justify-center"><span className="text-white/40 text-5xl font-display">{item.interviewee?.charAt(0) ?? "E"}</span></div>}
                     </div>
                     <div className="p-4 flex flex-col flex-grow">

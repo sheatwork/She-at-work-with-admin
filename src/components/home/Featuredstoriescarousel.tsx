@@ -6,7 +6,7 @@
 
 import { motion, Variants } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import Image from "next/image";
+import { CloudinaryImage } from "@/components/common/CloudinaryImage";
 import Link from "next/link";
 import { useState } from "react";
 import type { ProcessedStory } from "./FeaturedNews";
@@ -66,7 +66,7 @@ export function FeaturedStoriesCarousel({ stories }: { stories: ProcessedStory[]
         <motion.div variants={fadeUp} className="lg:hidden">
           <div className="bg-card rounded-3xl border border-border overflow-hidden">
             <div className="relative h-56">
-              <Image src={large.image} alt={large.title} fill className="object-cover" />
+              <CloudinaryImage src={large.image} alt={large.title} fill sizes="100vw" className="object-cover" />
               <button onClick={prev} className="absolute left-3 bottom-3 bg-white rounded-full shadow p-2">
                 <ChevronLeft className="h-4 w-4" />
               </button>
@@ -97,8 +97,8 @@ export function FeaturedStoriesCarousel({ stories }: { stories: ProcessedStory[]
           >
             <Link prefetch={false} href={`/entrechat/${large.slug}`} className="block group">
               <div className="relative h-72 overflow-hidden">
-                <Image
-                  src={large.image} alt={large.title} fill
+                <CloudinaryImage
+                  src={large.image} alt={large.title} fill sizes="(min-width: 1024px) 66vw, 100vw"
                   className="object-cover transition-transform duration-500 group-hover:scale-105"
                 />
               </div>
@@ -121,8 +121,8 @@ export function FeaturedStoriesCarousel({ stories }: { stories: ProcessedStory[]
           >
             <Link prefetch={false} href={`/entrechat/${small.slug}`} className="block group">
               <div className="relative h-48 overflow-hidden">
-                <Image
-                  src={small.image} alt={small.title} fill
+                <CloudinaryImage
+                  src={small.image} alt={small.title} fill sizes="(min-width: 1024px) 33vw, 100vw"
                   className="object-cover transition-transform duration-500 group-hover:scale-105"
                 />
               </div>
