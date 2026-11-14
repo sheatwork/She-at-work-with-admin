@@ -68,16 +68,18 @@ async headers() {
   ];
 },
   images: {
+    // Local /public images are not content-hashed, so Vercel's optimizer
+    // otherwise re-validates them after the default 60s. A week keeps each
+    // banner variant cached; a replaced banner should get a new filename.
+    minimumCacheTTL: 604800,
+    // Only hosts actually rendered through the optimizer. Each entry lets any
+    // caller run /_next/image transformations (billed) on that host's images,
+    // so it is scoped to this account's Cloudinary folder. Content images use
+    // CloudinaryImage (Cloudinary resizes them); YouTube thumbnails are
+    // unoptimized. sheatwork.com, Unsplash and gstatic were never used.
     remotePatterns: [
-      { protocol: "https", hostname: "sheatwork.com",              pathname: "/**" },
-      { protocol: "http",  hostname: "sheatwork.com",              pathname: "/**" },
-      { protocol: "https", hostname: "images.unsplash.com",        pathname: "/**" },
-      { protocol: "https", hostname: "res.cloudinary.com",         pathname: "/**" },
-      { protocol: "https", hostname: "encrypted-tbn0.gstatic.com", pathname: "/**" },
-      {
-      protocol: "https",
-      hostname: "i.ytimg.com",
-    },
+      { protocol: "https", hostname: "res.cloudinary.com", pathname: "/xqzhpelo/**" },
+      { protocol: "https", hostname: "i.ytimg.com",        pathname: "/**" },
     ],
   },
 };

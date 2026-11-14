@@ -6,7 +6,7 @@
 import { ArrowRight, Calendar, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import Image from "next/image";
+import { CloudinaryImage } from "@/components/common/CloudinaryImage";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -56,7 +56,7 @@ const BlogCard = ({ blog, index }: { blog: ProcessedBlog; index: number }) => {
         hover:shadow-[0_16px_40px_rgba(0,0,0,0.10)] h-full"
     >
       <div className="relative w-full overflow-hidden" style={{ paddingBottom: "56.25%" }}>
-        <Image src={blog.image} alt={blog.title} fill
+        <CloudinaryImage src={blog.image} alt={blog.title} fill
           sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
           className="object-cover transition-transform duration-500 ease-out group-hover:scale-105"
         />

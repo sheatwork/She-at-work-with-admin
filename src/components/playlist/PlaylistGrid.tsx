@@ -112,6 +112,7 @@ export function PlaylistGrid({ playlists }: { playlists: any[] }) {
                       <div className="relative aspect-video overflow-hidden">
                         <Image
                           src={thumbnail}
+                          unoptimized
                           alt={title}
                           fill
                           className="object-cover group-hover:scale-105 transition-transform duration-500"

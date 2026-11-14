@@ -486,6 +486,7 @@ export default function CoreTeamPage() {
                           src={advisor.image}
                           alt={advisor.name}
                           fill
+                          sizes="96px"
                           className="object-cover group-hover:scale-110 transition-transform duration-500"
                         />
                       </motion.div>

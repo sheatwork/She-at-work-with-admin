@@ -224,6 +224,7 @@ export function PlaylistDetailClient({
                         <div className="relative w-28 aspect-video rounded-lg overflow-hidden flex-shrink-0">
                           <Image
                             src={thumbnail}
+                            unoptimized
                             alt={title}
                             fill
                             className="object-cover"

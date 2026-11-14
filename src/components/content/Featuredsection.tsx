@@ -1,5 +1,5 @@
 // NO "use client" — server component
-import Image from "next/image";
+import { CloudinaryImage } from "@/components/common/CloudinaryImage";
 import Link from "next/link";
 import { Calendar, ChevronRight, Clock, ExternalLink, MapPin, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,7 +42,7 @@ export function FeaturedSection({ featuredItem, latestItems, config }: Props) {
               {/* Image */}
               <div className="relative h-40 sm:h-64 lg:h-[340px] bg-gradient-to-br from-muted to-secondary">
                 {featuredItem.featuredImage ? (
-                  <Image
+                  <CloudinaryImage
                     src={featuredItem.featuredImage}
                     alt={featuredItem.title}
                     fill
@@ -142,7 +142,7 @@ export function FeaturedSection({ featuredItem, latestItems, config }: Props) {
                       {/* Thumbnail */}
                       <div className="flex-shrink-0 relative h-12 w-12 sm:h-14 sm:w-14 rounded-lg overflow-hidden bg-gradient-to-br from-muted to-secondary">
                         {item.featuredImage ? (
-                          <Image
+                          <CloudinaryImage
                             src={item.featuredImage}
                             alt={item.title}
                             fill

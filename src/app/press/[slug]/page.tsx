@@ -18,7 +18,7 @@ import { ShareBar } from "@/components/content/ShareBar";
 import { Navbar } from "@/components/navbar/Navbar";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, Calendar, Clock, Tag, User } from "lucide-react";
-import Image from "next/image";
+import { CloudinaryImage } from "@/components/common/CloudinaryImage";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -102,7 +102,7 @@ export default async function PressDetailPage({ params }: { params: Promise<{ sl
               {press.featuredImage && (
                 <div className="lg:w-2/5">
                   <div className="relative h-64 lg:h-80 rounded-xl overflow-hidden shadow-lg">
-                    <Image src={press.featuredImage} alt={cleanTitle} fill className="object-cover" priority
+                    <CloudinaryImage src={press.featuredImage} alt={cleanTitle} fill className="object-cover" priority
                       sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 400px" />
                   </div>
                 </div>
@@ -177,7 +177,7 @@ export default async function PressDetailPage({ params }: { params: Promise<{ sl
                 {galleryImages.map((img, index) => (
                   <div key={index} className="group relative rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300">
                     <div className="relative aspect-[4/3] bg-muted">
-                      <Image src={img} alt={`Gallery image ${index + 1} for ${cleanTitle}`} fill
+                      <CloudinaryImage src={img} alt={`Gallery image ${index + 1} for ${cleanTitle}`} fill
                         className="object-cover group-hover:scale-105 transition-transform duration-300"
                         unoptimized />
                     </div>
@@ -220,7 +220,7 @@ export default async function PressDetailPage({ params }: { params: Promise<{ sl
                     className="group bg-card rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-border flex flex-col h-full">
                     <div className="relative h-40 bg-gradient-to-br from-muted to-secondary flex-shrink-0 overflow-hidden">
                       {item.featuredImage
-                        ? <Image src={item.featuredImage} alt={item.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="33vw" />
+                        ? <CloudinaryImage src={item.featuredImage} alt={item.title} fill className="object-cover transition-transform duration-500 group-hover:scale-105" sizes="33vw" />
                         : <div className="absolute inset-0 bg-gradient-to-r from-primary to-accent flex items-center justify-center"><span className="text-white/40 text-5xl font-display">{item.title.charAt(0)}</span></div>}
                     </div>
                     <div className="p-4 flex flex-col flex-grow">
