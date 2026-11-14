@@ -2,8 +2,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["jsdom"],
-
   // Legacy WordPress paths that map to a fixed destination and therefore need
   // no database lookup. Article permalinks are handled separately by
   // app/[legacySlug]/page.tsx, which has to resolve the slug against `content`.
@@ -53,15 +51,6 @@ async headers() {
         {
           key: "Vary",
           value: "Accept-Encoding",
-        },
-      ],
-    },
-    {
-      source: "/api/content/:slug*",
-      headers: [
-        {
-          key: "Cache-Control",
-          value: "public, s-maxage=300, stale-while-revalidate=600",
         },
       ],
     },

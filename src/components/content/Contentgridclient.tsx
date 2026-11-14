@@ -180,15 +180,10 @@ export function ContentGridClient({
         dateFrom:      filterState.dateRange.from || undefined,
         dateTo:        filterState.dateRange.to   || undefined,
         readingTime,
-        ...(isEntreChat && {
-          industrySector:  filterState.selectedIndustrySector  || undefined,
-          businessStage:   filterState.selectedBusinessStage   || undefined,
-          interviewFormat: filterState.selectedInterviewFormat || undefined,
-          founderRegion:   filterState.selectedFounderRegion   || undefined,
-          successFactor:   filterState.selectedSuccessFactor   || undefined,
-          country:         filterState.selectedCountry         || undefined,
-          state:           filterState.selectedState           || undefined,
-        }),
+        // The EntreChat-only filters (industrySector, country, ...) are not
+        // sent: /api/content does not implement them, so they changed nothing
+        // but the URL, and every distinct URL is a separate CDN cache entry
+        // (i.e. a guaranteed miss that wakes Neon).
       });
 
       const res = await fetch(url, { signal: abortRef.current.signal });

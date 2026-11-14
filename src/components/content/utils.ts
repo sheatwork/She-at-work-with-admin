@@ -40,14 +40,6 @@ type UrlOpts = {
   dateFrom?:       string;
   dateTo?:         string;
   readingTime?:    string;
-  // EntreChat extras
-  industrySector?:  string;
-  businessStage?:   string;
-  interviewFormat?: string;
-  founderRegion?:   string;
-  successFactor?:   string;
-  country?:         string;
-  state?:           string;
 };
 
 export function buildUrl(opts: UrlOpts): string {
@@ -60,13 +52,6 @@ export function buildUrl(opts: UrlOpts): string {
   if (opts.dateFrom)               p.set("dateFrom",        opts.dateFrom);
   if (opts.dateTo)                 p.set("dateTo",          opts.dateTo);
   if (opts.readingTime)            p.set("readingTime",     opts.readingTime);
-  if (opts.industrySector)         p.set("industrySector",  opts.industrySector);
-  if (opts.businessStage)          p.set("businessStage",   opts.businessStage);
-  if (opts.interviewFormat)        p.set("interviewFormat", opts.interviewFormat);
-  if (opts.founderRegion)          p.set("founderRegion",   opts.founderRegion);
-  if (opts.successFactor)          p.set("successFactor",   opts.successFactor);
-  if (opts.country)                p.set("country",         opts.country);
-  if (opts.state)                  p.set("state",           opts.state);
   return `/api/content?${p}`;
 }
 

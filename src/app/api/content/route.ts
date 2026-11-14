@@ -15,8 +15,6 @@ import {
 import {
   and,
   eq,
-  ilike,
-  or,
   gte,
   lte,
   desc,
@@ -29,22 +27,35 @@ import {
 // ✅ NEW: Conditional logging for production
 const DEBUG = process.env.NODE_ENV === "development";
 
-// Enable CDN caching
-export const revalidate = 1800;
+// Cached at the CDN via the Cache-Control headers below. (A route-segment
+// `revalidate` export does nothing here: the handler reads the request, so the
+// route is always dynamic.)
+//
+// Pinned next to the Neon compute (ap-southeast-1). Remove once the Vercel
+// project's default function region is sin1.
 export const preferredRegion = "sin1";
 export const runtime = "nodejs";
 
 
 // ... [rest of type definitions remain the same] ...
 
-type ContentType =
-  | "BLOG"
-  | "NEWS"
-  | "ENTRECHAT"
-  | "EVENT"
-  | "PRESS"
-  | "SUCCESS_STORY"
-  | "RESOURCE";
+const CONTENT_TYPES = [
+  "BLOG",
+  "NEWS",
+  "ENTRECHAT",
+  "EVENT",
+  "PRESS",
+  "SUCCESS_STORY",
+  "RESOURCE",
+] as const;
+type ContentType = (typeof CONTENT_TYPES)[number];
+
+/** Parse a positive integer query param, falling back on junk, clamping to max. */
+function intParam(raw: string | null, fallback: number, max: number): number {
+  const n = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(n, max);
+}
 
 type MetaEntry = {
   categories: { id: string; name: string; slug: string }[];
@@ -132,26 +143,11 @@ const CONTENT_HEADERS = {
 const META_HEADERS = {
   "Cache-Control": "public, s-maxage=600, stale-while-revalidate=3600",
 };
-const SUGGESTIONS_HEADERS = {
-  "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120",
-};
-
-const rateLimitCache = new Map<string, { count: number; lastReset: number }>();
-const RATE_LIMIT = 60;
-const RATE_LIMIT_WINDOW = 60 * 1000;
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const key = `rate_limit:${ip}`;
-  const entry = rateLimitCache.get(key);
-  if (!entry || now - entry.lastReset > RATE_LIMIT_WINDOW) {
-    rateLimitCache.set(key, { count: 1, lastReset: now });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
-}
+// NOTE: there used to be an in-memory per-IP rate limiter here. It did not
+// work on serverless (each instance had its own counter) and its Map was never
+// pruned, so it grew with every distinct x-forwarded-for value for the life of
+// the instance. Rate limiting belongs in the Vercel Firewall
+// (docs/neon-cu-runbook.md §2).
 
 export async function GET(req: NextRequest) {
   const startTime = Date.now();
@@ -163,20 +159,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const ip =
-      req.headers.get("x-forwarded-for") ??
-      req.headers.get("x-real-ip") ??
-      "unknown";
-
-    if (!checkRateLimit(ip)) {
-      return NextResponse.json(
-        { error: "Too many requests, please try again later" },
-        { status: 429, headers: { "Retry-After": "60" } }
-      );
-    }
-
     const { searchParams } = new URL(req.url);
     const contentType = (searchParams.get("contentType") ?? "BLOG") as ContentType;
+    if (!CONTENT_TYPES.includes(contentType)) {
+      // Was a Postgres enum cast error → 500 (and an uncached response).
+      return NextResponse.json(
+        { error: "Unknown contentType" },
+        { status: 400, headers: CONTENT_HEADERS }
+      );
+    }
 
     // ── Meta endpoint
     if (searchParams.get("meta") === "1") {
@@ -188,49 +179,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // ── Suggestions endpoint
-    if (searchParams.get("suggestions") === "1") {
-      const q = searchParams.get("q")?.trim() ?? "";
-      if (q.length < 2) {
-        return NextResponse.json(
-          { results: [] },
-          { headers: SUGGESTIONS_HEADERS }
-        );
-      }
-
-      const rows = await db
-        .select({
-          id: ContentTable.id,
-          title: ContentTable.title,
-          slug: ContentTable.slug,
-          publishedAt: ContentTable.publishedAt,
-          authorName: ContentTable.authorName,
-          categoryName: CategoriesTable.name,
-        })
-        .from(ContentTable)
-        .leftJoin(
-          CategoriesTable,
-          eq(ContentTable.categoryId, CategoriesTable.id)
-        )
-        .where(
-          and(
-            eq(ContentTable.contentType, contentType),
-            eq(ContentTable.status, "PUBLISHED"),
-            or(
-              ilike(ContentTable.title, `%${q}%`),
-              ilike(ContentTable.authorName, `%${q}%`)
-            )
-          )
-        )
-        .orderBy(desc(ContentTable.createdAt))
-        .limit(50);
-
-      return NextResponse.json({ results: rows }, { headers: SUGGESTIONS_HEADERS });
-    }
-
     // ── Parse params
-    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
-    const limit = Math.min(50, parseInt(searchParams.get("limit") ?? "12"));
+    // Junk values used to reach SQL: page=abc gave OFFSET NaN (500), limit=0
+    // gave totalPages Infinity, limit=-5 a negative LIMIT (500).
+    const page = intParam(searchParams.get("page"), 1, 10_000);
+    const limit = intParam(searchParams.get("limit"), 12, 50);
     const offset = (page - 1) * limit;
 
     const search = searchParams.get("search")?.trim() ?? "";
