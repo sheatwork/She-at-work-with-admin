@@ -86,7 +86,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
           <header className="mb-8">
             <div className="flex flex-wrap items-center gap-2 mb-4">
               {news.categoryName && (
-                <Link href={`/news?category=${news.categorySlug}`}>
+                <Link prefetch={false} href={`/news?category=${news.categorySlug}`}>
                   <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold uppercase hover:bg-primary/20 transition-colors">
                     {getCategoryIcon(news.categoryName)}{news.categoryName}
                   </span>
@@ -98,7 +98,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
                 </span>
               )}
               {news.tags.slice(0, 3).map((tag) => (
-                <Link key={tag.id} href={`/news?tag=${tag.slug}`}>
+                <Link prefetch={false} key={tag.id} href={`/news?tag=${tag.slug}`}>
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-[11px] hover:bg-primary/10 hover:text-primary transition-colors">
                     <Tag className="h-3 w-3" />{tag.name}
                   </span>
@@ -155,7 +155,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Topics</p>
               <div className="flex flex-wrap gap-2">
                 {news.tags.map((tag) => (
-                  <Link key={tag.id} href={`/news?tag=${tag.slug}`}>
+                  <Link prefetch={false} key={tag.id} href={`/news?tag=${tag.slug}`}>
                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-border text-xs text-muted-foreground hover:border-primary hover:text-primary transition-colors">
                       <Tag className="h-3 w-3" />{tag.name}
                     </span>
@@ -174,7 +174,7 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
               <h2 className="text-xl sm:text-2xl font-display font-bold text-foreground mb-6">Related News</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                 {related.map((item) => (
-                  <Link key={item.id} href={`/news/${item.slug}`}
+                  <Link prefetch={false} key={item.id} href={`/news/${item.slug}`}
                     className="group bg-card rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 border border-border flex flex-col h-full">
                     <div className="relative h-40 bg-gradient-to-br from-muted to-secondary flex-shrink-0 overflow-hidden">
                       {item.featuredImage

@@ -86,7 +86,7 @@ const BlogCard = ({ blog, index }: { blog: ProcessedBlog; index: number }) => {
           <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
             <Calendar className="h-3 w-3 shrink-0" /><span>{blog.date}</span>
           </span>
-          <Link href={`/blogs/${blog.slug}`}>
+          <Link prefetch={false} href={`/blogs/${blog.slug}`}>
             <span className="text-xs sm:text-sm font-medium text-primary
               flex items-center gap-1 group-hover:gap-2 transition-all duration-300 whitespace-nowrap">
               Read More <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" />

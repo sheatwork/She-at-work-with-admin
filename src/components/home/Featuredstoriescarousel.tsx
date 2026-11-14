@@ -78,7 +78,7 @@ export function FeaturedStoriesCarousel({ stories }: { stories: ProcessedStory[]
               <p className="text-xs text-muted-foreground mb-1">{large.date}</p>
               <h3 className="font-bold text-lg mb-2">{large.title}</h3>
               <p className="text-sm text-muted-foreground mb-4">{large.description}</p>
-              <Link href={`/entrechat/${large.slug}`} className="text-sm text-primary font-medium hover:underline">
+              <Link prefetch={false} href={`/entrechat/${large.slug}`} className="text-sm text-primary font-medium hover:underline">
                 Read More →
               </Link>
             </div>
@@ -95,7 +95,7 @@ export function FeaturedStoriesCarousel({ stories }: { stories: ProcessedStory[]
             viewport={{ once: true, amount: 0.3 }}
             className="col-span-2 bg-card rounded-3xl border border-border overflow-hidden"
           >
-            <Link href={`/entrechat/${large.slug}`} className="block group">
+            <Link prefetch={false} href={`/entrechat/${large.slug}`} className="block group">
               <div className="relative h-72 overflow-hidden">
                 <Image
                   src={large.image} alt={large.title} fill
@@ -119,7 +119,7 @@ export function FeaturedStoriesCarousel({ stories }: { stories: ProcessedStory[]
             viewport={{ once: true, amount: 0.3 }}
             className="bg-card rounded-3xl border border-border overflow-hidden"
           >
-            <Link href={`/entrechat/${small.slug}`} className="block group">
+            <Link prefetch={false} href={`/entrechat/${small.slug}`} className="block group">
               <div className="relative h-48 overflow-hidden">
                 <Image
                   src={small.image} alt={small.title} fill
