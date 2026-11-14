@@ -105,10 +105,8 @@ export async function POST(req: NextRequest) {
       })
       .returning();
 
-    // Categories drive the filter panel on every listing page and the category
-    // chip on every detail page. Detail pages are cached with
-    // `revalidate = false`, so this invalidation is what makes the change
-    // visible at all.
+    // A new category appears in the listing filter panels only; no detail page
+    // can reference it yet.
     revalidateCategories(category.contentType);
 
     return NextResponse.json({ success: true, data: category }, { status: 201 });

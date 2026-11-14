@@ -76,8 +76,20 @@ export async function PATCH(req: NextRequest,  context: { params: Promise<{ id: 
       tags, // Add tags
     } = body;
 
+    // Status before this write, to tell an ordinary edit from a publish or
+    // unpublish (see revalidateContent's publishedSetChanged).
+    let previousStatus: string | undefined;
+
     // Use transaction for updates
     const result = await dbPool.transaction(async (tx) => {
+      if (status !== undefined) {
+        const [prev] = await tx
+          .select({ status: ContentTable.status })
+          .from(ContentTable)
+          .where(eq(ContentTable.id, id));
+        previousStatus = prev?.status;
+      }
+
       // Update content
       const updates: Partial<typeof ContentTable.$inferInsert> = {
         updatedAt: new Date(),
@@ -165,7 +177,11 @@ export async function PATCH(req: NextRequest,  context: { params: Promise<{ id: 
     });
 
     // Push the edit to the live (cached) public pages immediately.
-    revalidateContent(result.contentType, result.slug);
+    revalidateContent(result.contentType, result.slug, {
+      publishedSetChanged:
+        previousStatus !== undefined &&
+        (previousStatus === "PUBLISHED") !== (result.status === "PUBLISHED"),
+    });
 
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
@@ -187,6 +203,7 @@ export async function DELETE(_req: NextRequest,  context: { params: Promise<{ id
         id:          ContentTable.id,
         slug:        ContentTable.slug,
         contentType: ContentTable.contentType,
+        status:      ContentTable.status,
       });
 
     if (!deleted) {
@@ -194,7 +211,9 @@ export async function DELETE(_req: NextRequest,  context: { params: Promise<{ id
     }
 
     // Drop the deleted item from the live (cached) public pages immediately.
-    revalidateContent(deleted.contentType, deleted.slug);
+    revalidateContent(deleted.contentType, deleted.slug, {
+      publishedSetChanged: deleted.status === "PUBLISHED",
+    });
 
     return NextResponse.json({ success: true, message: "Content deleted" });
   } catch (err) {

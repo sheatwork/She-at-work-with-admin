@@ -95,7 +95,10 @@ export async function PATCH(
       );
     }
 
-    revalidateCategories(updated.contentType);
+    // Only a rename changes what detail pages show (the category chip).
+    revalidateCategories(updated.contentType, {
+      detailPages: name !== undefined,
+    });
 
     return NextResponse.json({ success: true, data: updated });
   } catch (err: any) {
@@ -144,6 +147,7 @@ export async function DELETE(
       );
     }
 
+    // Detail pages ignore isActive, so only the listing filters change.
     revalidateCategories(updated.contentType);
 
     return NextResponse.json({ success: true, message: "Category deactivated" });

@@ -164,7 +164,9 @@ export async function POST(req: NextRequest) {
     });
 
     // Push the new content to the live (cached) public pages immediately.
-    revalidateContent(result.contentType, result.slug);
+    revalidateContent(result.contentType, result.slug, {
+      publishedSetChanged: result.status === "PUBLISHED",
+    });
 
     return NextResponse.json({ success: true, data: result }, { status: 201 });
   } catch (err: any) {
