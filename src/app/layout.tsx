@@ -1,25 +1,14 @@
 // app/layout.tsx
-// KEY CHANGE: removed `const session = await auth()`
+// Pure static shell: no auth(), no SessionProvider.
 //
-// WHY THIS MATTERS:
-//   auth() calls the jwt() callback which calls findUserById() (DB lookup).
-//   This ran on EVERY page render — including /, /news, /blogs, /about —
-//   pages that have zero need for session data.
-//   With 836 invocations, this was the single biggest cost driver.
-//
-// HOW SessionProvider WORKS WITHOUT pre-fetched session:
-//   SessionProvider with no `session` prop simply fetches /api/auth/session
-//   on the CLIENT when a component calls useSession(). Public pages never
-//   call useSession() so the fetch never happens on those pages at all.
-//   Dashboard pages DO call useSession() — they get the session client-side,
-//   which is fine because the middleware already verified the JWT before
-//   those pages even render.
-//
-// RESULT: ~200-250 fewer DB lookups per deployment period.
+// SessionProvider lives in app/(protected)/layout.tsx. Mounted here it fetched
+// /api/auth/session on every page view (next-auth's provider calls getSession()
+// on mount whenever no `session` prop is passed, whether or not anything calls
+// useSession()), so each visit to a cached public page still cost a function
+// invocation, plus one more in every other open tab via its BroadcastChannel.
 
 import { Footer } from "@/components/footer/Footer";
 import type { Metadata } from "next";
-import { SessionProvider } from "next-auth/react";
 import { Inter, Manrope } from "next/font/google";
 import "./globals.css";
 
@@ -57,19 +46,9 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${manrope.variable} antialiased bg-background text-foreground`}
       >
-        {/*
-          SessionProvider without a session prop = lazy client-side session.
-          Components using useSession() will fetch /api/auth/session once on mount.
-          Public pages that don't use useSession() = zero session fetches.
-        */}
-        <SessionProvider
-          refetchInterval={0}
-          refetchOnWindowFocus={false}
-        >
-          <main className="flex min-h-screen flex-col">
-            {children}
-          </main>
-        </SessionProvider>
+        <main className="flex min-h-screen flex-col">
+          {children}
+        </main>
 
         <Footer />
       </body>
