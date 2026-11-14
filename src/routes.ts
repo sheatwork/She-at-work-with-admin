@@ -61,4 +61,8 @@ export const protectedRoutes: { pattern: RegExp; roles: Role[] }[] = [
   // dump) and /api/superadmin/analytics (16 unbounded COUNT(*) queries).
   { pattern: /^\/dashboard\/superadmin(\/.*)?$/, roles: ["SUPER_ADMIN"] },
   { pattern: /^\/api\/superadmin(\/.*)?$/,       roles: ["SUPER_ADMIN"] },
+  // /api/admin/* only required *a* session, so any self-registered USER could
+  // call every admin endpoint (content writes, contact submissions, uploads,
+  // site settings). Same role as the /dashboard/admin UI that calls them.
+  { pattern: /^\/api\/admin(\/.*)?$/,            roles: ["ADMIN"] },
 ];
