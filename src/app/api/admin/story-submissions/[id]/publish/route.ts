@@ -123,7 +123,9 @@ export async function POST(req: NextRequest, { params }: Context) {
       });
 
     // Push the newly published story to the live (cached) public pages.
-    revalidateContent(newContent.contentType, newContent.slug);
+    revalidateContent(newContent.contentType, newContent.slug, {
+      publishedSetChanged: true,
+    });
 
     return NextResponse.json(
       { success: true, data: { submission: updatedSubmission, content: newContent } },
