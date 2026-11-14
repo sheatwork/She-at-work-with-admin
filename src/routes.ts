@@ -3,33 +3,15 @@
 // Normalized to regex only — no mixed string/RegExp array.
 // Middleware reads this directly with zero runtime parsing overhead.
 
-import { Role } from "./validaton-schema";
+import type { Role } from "./validaton-schema";
 
 export const DEFAULT_LOGIN_REDIRECT = "/dashboard";
 export const apiAuthPrefix          = "/api/auth";
 
 // ── Public routes ──────────────────────────────────────────────────────────
-// Converted to a single compiled regex so middleware does ONE .test() call
-// instead of looping an array on every request.
-//
-// Covers:
-//   /                          homepage
-//   /auth/verify-email         email link
-//   /about, /about/*           about + core-team + press-room
-//   /news, /news/*             news listing + detail
-//   /blogs, /blogs/*
-//   /entrechat, /entrechat/*
-//   /events, /events/*
-//   /contact
-//   /share-your-story
-//   /gettingstarted, /gettingstarted/*
-//   /sheDiaries, /sheDiaries/*
-//   /press/*
-//
-// NOTE on /sheDiaries: it was missing from this pattern, so ~19% of production
-// traffic fell through to the getToken() JWT verification in the middleware
-// before being waved through anyway. Listing it here short-circuits at step 3.
-export const publicRoutePattern = /^(\/|\/auth\/verify-email|\/about(\/.*)?|\/news(\/.*)?|\/blogs(\/.*)?|\/entrechat(\/.*)?|\/events(\/.*)?|\/press(\/.*)?|\/sheDiaries(\/.*)?|\/contact|\/share-your-story|\/gettingstarted(\/.*)?)$/;
+// There is no public-route list: the middleware treats every path as public
+// unless it is an authRoutes entry or under its PROTECTED_PREFIXES, so new
+// public pages need no registration here.
 
 // ── Public API prefixes ────────────────────────────────────────────────────
 // Checked with startsWith — keep as array, easy to extend.

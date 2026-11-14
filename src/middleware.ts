@@ -40,7 +40,6 @@ import {
   DEFAULT_LOGIN_REDIRECT,
   protectedRoutes,
   publicApiPrefixes,
-  publicRoutePattern,
 } from "@/routes";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
@@ -86,10 +85,19 @@ export async function middleware(req: NextRequest) {
   if (publicApiPrefixes.some((prefix) => matchesPrefix(pathname, prefix)))
     return NextResponse.next();
 
-  // ── 3. Allow public pages (single regex test, pre-compiled) ───────────────
-  if (publicRoutePattern.test(pathname)) return NextResponse.next();
+  // ── 3. Only auth pages and protected prefixes need the JWT ────────────────
+  //    Everything else passes straight through: public pages, legacy WordPress
+  //    permalinks (~36% of traffic), /blog/*, and scanner probes. Previously
+  //    anything outside publicRoutePattern paid a getToken() JWE decrypt just to
+  //    be waved through at step 6 — the role table below only lists paths that
+  //    are under PROTECTED_PREFIXES anyway, so skipping it here changes nothing.
+  const isAuthRoute = authRoutes.includes(pathname);
+  const isProtectedPath = PROTECTED_PREFIXES.some((prefix) =>
+    matchesPrefix(pathname, prefix)
+  );
+  if (!isAuthRoute && !isProtectedPath) return NextResponse.next();
 
-  // ── 4. Single JWT decode — only happens when route needs auth check ────────
+  // ── 4. Single JWT decode — only for auth pages and protected paths ────────
   //    getToken() verifies the JWT signature + reads role from the payload.
   //    No DB call, no session lookup, pure crypto.
   const token = await getToken({
@@ -102,32 +110,19 @@ export async function middleware(req: NextRequest) {
   const isLoggedIn = !!token;
 
   // ── 5. Auth routes (login, register, etc.) ────────────────────────────────
-  if (authRoutes.includes(pathname)) {
+  if (isAuthRoute) {
     // Already logged in → redirect away from auth pages
     return isLoggedIn
       ? NextResponse.redirect(new URL(DEFAULT_LOGIN_REDIRECT, req.url))
       : NextResponse.next();
   }
 
-  // ── 6. Only redirect to login for known protected routes ──────────────────
-  //    Previously this was a catch-all: any unmatched route (including 404s)
-  //    would redirect to /auth/login. Now we only redirect if the path
-  //    is explicitly listed in PROTECTED_PREFIXES. Unknown/invalid paths
-  //    fall through to Next.js which renders the not-found page → home.
+  // ── 6. Protected path without a session → login ───────────────────────────
   if (!isLoggedIn) {
-    const isProtectedPath = PROTECTED_PREFIXES.some((prefix) =>
-      matchesPrefix(pathname, prefix)
-    );
-
-    if (isProtectedPath) {
-      // Preserve the intended destination so we can redirect back after login
-      const loginUrl = new URL("/auth/login", req.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
-    // Not a known protected path → let Next.js handle it (renders 404 → home)
-    return NextResponse.next();
+    // Preserve the intended destination so we can redirect back after login
+    const loginUrl = new URL("/auth/login", req.url);
+    loginUrl.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
   // ── 7. Role-based route protection ────────────────────────────────────────
@@ -147,17 +142,16 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all paths EXCEPT:
-     *   - _next/static  (Next.js static files)
-     *   - _next/image   (Next.js image optimization)
+     * Match all paths EXCEPT (the function is never even invoked for these):
+     *   - _next/static, _next/image
      *   - favicon.ico, sitemap.xml, robots.txt
-     *   - Public image/media files (png, jpg, svg, etc.)
-     *   - API routes that are already public (handled in middleware body above,
-     *     but skipping them at matcher level avoids even entering the function)
-     *
-     * Note: We still include /api/* in the matcher so protected APIs
-     * (e.g. /api/admin/*) get guarded. Public APIs are fast-exited at step 2.
+     *   - NextAuth's own routes and the public APIs. Segment-aware, so
+     *     /api/contentX would still be matched. Keep in sync with
+     *     apiAuthPrefix + publicApiPrefixes in routes.ts (the body re-checks
+     *     them, so a drift here only costs an invocation, never access).
+     *   - Static files by extension, including the .php/.env/.xml/.json
+     *     paths vulnerability scanners probe.
      */
-    "/((?!_next/static|_next/image|favicon\\.ico|sitemap\\.xml|robots\\.txt|.*\\.(?:png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf|eot|css|js)).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|sitemap\\.xml|robots\\.txt|api/(?:auth|content|resources|stories|contact-submissions|neon-backup)(?:/|$)|.*\\.(?:png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|eot|css|js|map|php|env|txt|xml|json|pdf|webmanifest|mp4)$).*)",
   ],
 };
