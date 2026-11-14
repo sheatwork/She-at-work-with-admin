@@ -6,11 +6,14 @@ const API_KEY = process.env.NEON_API_KEY!;
 const PROJECT_ID = process.env.NEON_PROJECT_ID!;
 const BASE_BRANCH = process.env.NEON_BASE_BRANCH || "production";
 
-const backupMonth = dayjs().subtract(1, "month").format("YYYY-MM");
-const deleteMonth = dayjs().subtract(2, "month").format("YYYY-MM");
-
-const newBranch = `backup-${backupMonth}`;
-const oldBranch = `backup-${deleteMonth}`;
+// Computed per request, not at module load: a warm instance could otherwise
+// carry last month's names into this month's run.
+function branchNames() {
+  return {
+    newBranch: `backup-${dayjs().subtract(1, "month").format("YYYY-MM")}`,
+    oldBranch: `backup-${dayjs().subtract(2, "month").format("YYYY-MM")}`,
+  };
+}
 
 const baseUrl = `https://console.neon.tech/api/v2/projects/${PROJECT_ID}`;
 
@@ -45,7 +48,7 @@ async function getBranches() {
   return res.json();
 }
 
-async function createBranch() {
+async function createBranch(newBranch: string) {
   const data = await getBranches();
 
   const parent = data.branches.find((b: any) => b.name === BASE_BRANCH);
@@ -80,7 +83,7 @@ async function createBranch() {
   return true;
 }
 
-async function deleteOldBranch() {
+async function deleteOldBranch(oldBranch: string) {
   const data = await getBranches();
   const branch = data.branches.find((b: any) => b.name === oldBranch);
 
@@ -106,19 +109,25 @@ export async function GET(req: Request) {
   // Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. Without this gate
   // anyone hitting the URL creates a Neon branch — and every branch runs its
   // own separately-billed compute endpoint.
+  //
+  // Fails closed: previously an unset CRON_SECRET skipped the check entirely,
+  // leaving the route open to anyone.
   const cronSecret = process.env.CRON_SECRET;
-  if (
-    cronSecret &&
-    req.headers.get("authorization") !== `Bearer ${cronSecret}`
-  ) {
+  if (!cronSecret) {
+    console.error("neon-backup: CRON_SECRET is not set; refusing to run");
+    return Response.json({ error: "Not configured" }, { status: 503 });
+  }
+  if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const { newBranch, oldBranch } = branchNames();
 
   try {
     console.log("📦 Neon backup cron started");
 
-    const created = await createBranch();
-    await deleteOldBranch();
+    const created = await createBranch(newBranch);
+    await deleteOldBranch(oldBranch);
 
     await sendEmail(
       "Neon Backup Success",
