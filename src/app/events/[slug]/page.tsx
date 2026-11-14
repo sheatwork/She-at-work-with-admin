@@ -193,7 +193,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ sl
                   const relDate = extractEventDate(rel.summary ?? "", rel.publishedAt);
 
                   return (
-                    <Link key={rel.id} href={`/events/${rel.slug}`} className="group">
+                    <Link prefetch={false} key={rel.id} href={`/events/${rel.slug}`} className="group">
                       <div className="bg-card rounded-lg overflow-hidden shadow-md hover:shadow-xl transition-all duration-300 border border-border h-full hover:-translate-y-1">
                         <div className="h-48 bg-gradient-to-br from-muted to-secondary bg-cover bg-center relative overflow-hidden"
                           style={{ backgroundImage: rel.featuredImage ? `url(${rel.featuredImage})` : undefined }}>

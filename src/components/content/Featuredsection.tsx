@@ -28,7 +28,7 @@ export function FeaturedSection({ featuredItem, latestItems, config }: Props) {
         {/* ── Featured Card ─────────────────────────────────────────────── */}
         {featuredItem && (
           <div className="lg:col-span-2">
-            <Link
+            <Link prefetch={false}
               href={`/${config.slug}/${featuredItem.slug}`}
               className="block relative group bg-card rounded-xl sm:rounded-2xl lg:rounded-3xl overflow-hidden shadow-lg sm:shadow-xl hover:shadow-2xl transition-all duration-500 border-2 border-primary/10"
             >
@@ -133,7 +133,7 @@ export function FeaturedSection({ featuredItem, latestItems, config }: Props) {
             <div className="max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
               <div className="space-y-3 sm:space-y-4">
                 {latestItems.map((item, i) => (
-                  <Link
+                  <Link prefetch={false}
                     key={item.id}
                     href={`/${config.slug}/${item.slug}`}
                     className="block pb-3 sm:pb-4 border-b border-border last:border-0 last:pb-0 hover:bg-secondary/30 rounded-lg px-2 -mx-2 transition-all duration-200"

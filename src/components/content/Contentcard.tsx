@@ -42,7 +42,7 @@ export function ContentCard({ item, href, index = 0, onTagClick }: Props) {
   };
 
   return (
-    <Link
+    <Link prefetch={false}
       href={href}
       className="group bg-card rounded-lg sm:rounded-xl lg:rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 sm:hover:-translate-y-2 border border-border flex flex-col h-full"
     >
