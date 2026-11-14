@@ -13,7 +13,6 @@ import {
   extractGalleryImages, processWordPressContent,
   fetchContentDetailFromDB,
 } from "@/components/content/fetchDetail";
-import { fetchSlugsByContentType } from "@/db/content";
 import { ShareBar } from "@/components/content/ShareBar";
 import { Navbar } from "@/components/navbar/Navbar";
 import { Button } from "@/components/ui/button";
@@ -39,17 +38,24 @@ export const revalidate = false;
 
 // Registers this dynamic segment for ISR. Without it Next.js renders the
 // route on demand for every request and caches nothing.
+//
+// Returns [] rather than prebuilding: /about/press-room/[slug] is the canonical
+// URL (sitemap, listing cards and revalidation all use it) and already
+// prebuilds the same rows. Nothing links here, so prebuilding a second copy
+// only cost ~4 queries per row on every deploy.
 export async function generateStaticParams() {
-  const slugs = await fetchSlugsByContentType("PRESS");
-  return slugs.map((slug) => ({ slug }));
+  return [];
 }
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params;
-  const data = await fetchContentDetailFromDB(slug);
-  if (!data) return { title: "Press Room | She At Work" };
+  const data = await fetchContentDetailFromDB(slug, "/press");
+  // notFound() here, not a fallback title: metadata resolves before the page
+  // body, and once it has returned normally a later notFound() in the page is
+  // cached by ISR as a 200 "soft 404".
+  if (!data) notFound();
   const t = data.item.title.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&");
   return {
     title: `${t} | She At Work`,
@@ -66,7 +72,7 @@ function isGalleryOnly(content: string | null, galleryImages: string[]): boolean
 
 export default async function PressDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const data = await fetchContentDetailFromDB(slug);
+  const data = await fetchContentDetailFromDB(slug, "/press");
   if (!data) notFound();
 
   const { item: press, related } = data;
