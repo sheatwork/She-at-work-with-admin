@@ -13,6 +13,11 @@ import { findLegacyTarget } from "@/lib/legacy-redirect";
 export const revalidate = false;
 export const dynamicParams = true;
 
+// Required for on-demand ISR; see app/[legacySlug]/page.tsx.
+export async function generateStaticParams() {
+  return [];
+}
+
 export default async function LegacyBlogSlugPage({
   params,
 }: {
