@@ -5,8 +5,8 @@ import type { ContentPageConfig } from "@/components/content/types";
 export const newsConfig: ContentPageConfig = {
   contentType:       "NEWS",
   slug:              "news",
-  bannerDesktop:     "/news/finalNewsbanner.png",
-  bannerMobile:      "/news/mobileBannernews.png",
+  bannerDesktop:     "/news/finalNewsbanner.webp",
+  bannerMobile:      "/news/mobileBannernews.webp",
   bannerAlt:         "News Banner",
   bannerTitle:       "Women in Business News",
   bannerSubtitle:    "Stay informed with the latest news, insights, and success stories from women entrepreneurs worldwide",
@@ -24,8 +24,8 @@ export const newsConfig: ContentPageConfig = {
 export const blogsConfig: ContentPageConfig = {
   contentType:       "BLOG",
   slug:              "blogs",
-  bannerDesktop:     "/blogs/finalBlogsbanner.png",
-  bannerMobile:      "/blogs/mobileBlogs.png",
+  bannerDesktop:     "/blogs/finalBlogsbanner.webp",
+  bannerMobile:      "/blogs/mobileBlogs.webp",
   bannerAlt:         "Blogs Banner",
   bannerTitle:       "Inspiring Blogs",
   bannerSubtitle:    "Explore real insights, bold conversations, and practical guidance for women entrepreneurs. From funding and strategy to inspiring journeys, discover ideas that help you start, scale, and grow.",
@@ -43,8 +43,8 @@ export const blogsConfig: ContentPageConfig = {
 export const entreChatConfig: ContentPageConfig = {
   contentType:       "ENTRECHAT",
   slug:              "entrechat",
-  bannerDesktop:     "/entrechat/FinalEntrechatbanner.png",
-  bannerMobile:      "/entrechat/Mobile-Entrechat.png",
+  bannerDesktop:     "/entrechat/FinalEntrechatbanner.webp",
+  bannerMobile:      "/entrechat/Mobile-Entrechat.webp",
   bannerAlt:         "EntreChat Banner",
   bannerTitle:       "EntreChat Community",
   bannerSubtitle:    "Candid conversations with inspiring women entrepreneurs sharing real journeys and experiences. Discover challenges, strategies, and lessons that inform, inspire, and empower your own path.",
@@ -66,8 +66,8 @@ export const entreChatConfig: ContentPageConfig = {
 export const eventsConfig: ContentPageConfig = {
   contentType:       "EVENT",
   slug:              "events",
-  bannerDesktop:     "/events/FinalEventsbanner.png",   // TODO: upload banner
-  bannerMobile:      "/events/Mobile-Events.png",  // TODO: upload banner
+  bannerDesktop:     "/events/FinalEventsbanner.webp",   // TODO: upload banner
+  bannerMobile:      "/events/Mobile-Events.webp",  // TODO: upload banner
   bannerAlt:         "Events Banner",
   bannerTitle:       "Events & Opportunities",
   bannerSubtitle:    "Discover summits, workshops, networking sessions, and pitching events for women entrepreneurs. Find your next opportunity to connect, learn, and grow.",

@@ -188,7 +188,7 @@ export default function ShareYourStory() {
         <div className="absolute inset-0" style={{ top: 96 }}>
           <div className="block lg:hidden relative w-full h-full">
             <Image
-              src="/shareyourstory/Mobile Share your story.png"
+              src="/shareyourstory/Mobile Share your story.webp"
               alt="News Banner"
               fill
               className="object-cover object-center"
@@ -198,7 +198,7 @@ export default function ShareYourStory() {
           </div>
           <div className="hidden lg:block relative w-full h-full">
             <Image
-              src="/shareyourstory/finalshareyourstorybanner.png"
+              src="/shareyourstory/finalshareyourstorybanner.webp"
               alt="News Banner"
               fill
               className="object-cover object-center"

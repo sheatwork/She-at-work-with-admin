@@ -144,7 +144,7 @@ export default function GlobalschemeComponent() {
         <div className="absolute inset-0" style={{ top: 96 }}>
           <div className="block lg:hidden relative w-full h-full">
             <Image
-              src="/gettingstarted/Mobile Getting Started.png"
+              src="/gettingstarted/Mobile Getting Started.webp"
               alt="News Banner"
               fill
               className="object-cover object-center"
@@ -154,7 +154,7 @@ export default function GlobalschemeComponent() {
           </div>
           <div className="hidden lg:block relative w-full h-full">
             <Image
-              src="/gettingstarted/finalGettingstartedbanner.png"
+              src="/gettingstarted/finalGettingstartedbanner.webp"
               alt="News Banner"
               fill
               className="object-cover object-center"

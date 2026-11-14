@@ -44,7 +44,7 @@ export function PlaylistGrid({ playlists }: { playlists: any[] }) {
                   <div className="block lg:hidden relative w-full h-full">
                     <Image
                      
-                      src="/shediaries/YTbannermobile.jpg"
+                      src="/shediaries/YTbannermobile.webp"
                       
                       
                       alt="She Diaries"
@@ -56,7 +56,7 @@ export function PlaylistGrid({ playlists }: { playlists: any[] }) {
                   </div>
                   <div className="hidden lg:block relative w-full h-full">
                     <Image
-                       src="/shediaries/YTbannerforwebsite.jpg"
+                       src="/shediaries/YTbannerforwebsite.webp"
                       alt="She Diaries"
                       fill
                       className="object-cover object-center"
