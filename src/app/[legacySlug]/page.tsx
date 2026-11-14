@@ -23,9 +23,16 @@ import { findLegacyTarget } from "@/lib/legacy-redirect";
 
 export const revalidate = false;
 
-// No generateStaticParams: nothing here is worth prebuilding. Every legacy slug
-// is resolved on first request and cached indefinitely afterwards.
 export const dynamicParams = true;
+
+// Nothing is worth prebuilding, but generateStaticParams must still exist: in
+// Next 15 a dynamic segment without it is rendered on EVERY request
+// (`Cache-Control: no-store`, ƒ in the build table) and `revalidate = false` is
+// ignored. Returning [] opts the route into on-demand ISR, so each slug is
+// resolved once and its 308 / 404 is served from cache afterwards.
+export async function generateStaticParams() {
+  return [];
+}
 
 export default async function LegacySlugPage({
   params,

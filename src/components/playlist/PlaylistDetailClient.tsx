@@ -101,7 +101,7 @@ export function PlaylistDetailClient({
             className="mb-5"
           >
             <Link
-              href="/playlists"
+              href="/sheDiaries"
               className="inline-flex items-center gap-1.5 text-white/80 hover:text-white text-sm font-medium transition-colors"
             >
               <ChevronLeft className="h-4 w-4" />
