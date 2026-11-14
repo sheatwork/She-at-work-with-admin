@@ -83,7 +83,7 @@ export default async function Home() {
     title: (item.title ?? "").replace(/&amp;/g, "&"),
     description: extractExcerpt(item.summary, 100),
     date: formatDate(item.createdAt),
-    image: item.featuredImage?.trim() || "/placeholder-interview.jpg",
+    image: item.featuredImage?.trim() || "/home/revisedHomebanner2.webp",
     slug: item.slug ?? "",
   }));
 
@@ -95,7 +95,7 @@ export default async function Home() {
     category: item.categoryName ?? "General",
     date: formatDate(item.createdAt),
     readTime: item.readingTime ? `${item.readingTime} min read` : "1 min read",
-    image: item.featuredImage?.trim() || "/placeholder-blog.jpg",
+    image: item.featuredImage?.trim() || "/home/revisedHomebanner2.webp",
     slug: item.slug ?? "",
     author: { name: item.authorName ?? "She at Work", role: "Contributor" },
   }));

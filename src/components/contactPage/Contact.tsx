@@ -240,7 +240,7 @@ export default function ContactPage() {
         <div className="absolute inset-0" style={{ top: 96 }}>
           <div className="block lg:hidden relative w-full h-full">
             <Image
-              src="/contactus/Mobile Contact us.png"
+              src="/contactus/Mobile Contact us.webp"
               alt="News Banner"
               fill
               className="object-cover object-center"
@@ -250,7 +250,7 @@ export default function ContactPage() {
           </div>
           <div className="hidden lg:block relative w-full h-full">
             <Image
-              src="/contactus/FinalContactusbanner.png"
+              src="/contactus/FinalContactusbanner.webp"
               alt="News Banner"
               fill
               className="object-cover object-center"

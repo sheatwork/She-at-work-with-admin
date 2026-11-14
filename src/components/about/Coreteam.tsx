@@ -21,7 +21,7 @@ const coreTeam = [
       "Founder of award-winning brand communications firm, Kommune",
       "Former journalist with Indian Express Group"
     ],
-    image: "/core-team/RubySinha.png",
+    image: "/core-team/RubySinha.webp",
     linkedin: "#",
     twitter: "#",
     email: "#",
@@ -73,7 +73,7 @@ const coreTeam = [
       "App promotion & customer acquisition",
       "Tracking key internet marketing metrics"
     ],
-    image: "/core-team/HimanshuGupta.png",
+    image: "/core-team/HimanshuGupta.webp",
     linkedin: "#",
     twitter: "#",
     email: "#"
@@ -110,7 +110,7 @@ const advisoryBoard = [
       "Former Chairperson, FICCI FLO Mumbai",
       "Active in philanthropic work for women and girl child"
     ],
-    image: "/core-team/bela-rajan.png",
+    image: "/core-team/bela-rajan.webp",
     linkedin: "#",
     twitter: "#"
   },

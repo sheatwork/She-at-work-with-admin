@@ -89,7 +89,7 @@ const teamMembers = [
     id: "ruby-sinha",
     name: "Ruby Sinha",
     role: "Founder & President (BRICS CCI WE)",
-    image: "/core-team/RubySinha.png",
+    image: "/core-team/RubySinha.webp",
     linkedin: "#",
     twitter: "#",
   },
@@ -113,7 +113,7 @@ const teamMembers = [
     id: "himanshu-gupta",
     name: "Himanshu Gupta",
     role: "Digital Marketing Manager",
-    image: "/core-team/HimanshuGupta.png",
+    image: "/core-team/HimanshuGupta.webp",
     linkedin: "#",
     twitter: "#",
   },
@@ -174,7 +174,7 @@ export default function AboutPage() {
         <div className="absolute inset-0" style={{ top: 96 }}>
           <div className="block lg:hidden relative w-full h-full">
             <Image
-              src="/aboutus/Mobile about us.png"
+              src="/aboutus/Mobile about us.webp"
               alt="About Us Banner"
               fill className="object-cover object-center" priority
               sizes="(max-width: 1024px) 100vw"
@@ -182,7 +182,7 @@ export default function AboutPage() {
           </div>
           <div className="hidden lg:block relative w-full h-full">
             <Image
-              src="/aboutus/finalAboutusbanner.png"
+              src="/aboutus/finalAboutusbanner.webp"
               alt="About Us Banner"
               fill className="object-cover object-center" priority
               sizes="(min-width: 1024px) 100vw"
@@ -371,7 +371,7 @@ export default function AboutPage() {
               <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-accent/20" />
               <div className="relative w-full h-48 sm:h-64 lg:h-80">
                 <Image
-                  src="/mission.png"
+                  src="/mission.webp"
                   alt="Our Mission - Empowering women entrepreneurs through knowledge sharing and networking"
                   fill sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 600px"
                   className="object-cover group-hover:scale-105 transition-transform duration-500"
