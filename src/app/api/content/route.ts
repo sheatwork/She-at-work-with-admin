@@ -5,6 +5,8 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { NextRequest, NextResponse } from "next/server";
+import { stableCache } from "@/lib/data-cache";
+import { CACHE_TAGS } from "@/lib/revalidate";
 import { db } from "@/db";
 import {
   ContentTable,
@@ -60,30 +62,15 @@ function intParam(raw: string | null, fallback: number, max: number): number {
 type MetaEntry = {
   categories: { id: string; name: string; slug: string }[];
   readingTimes: string[];
-  cachedAt: number;
 };
 
-const metaCache = new Map<string, MetaEntry>();
-const META_TTL = 10 * 60 * 1000;
-const MAX_CACHE_ENTRIES = 50;
-
-function getMetaFromCache(key: string): MetaEntry | null {
-  const entry = metaCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.cachedAt > META_TTL) {
-    metaCache.delete(key);
-    return null;
-  }
-  return entry;
-}
-
-function setMetaInCache(key: string, entry: MetaEntry) {
-  if (metaCache.size >= MAX_CACHE_ENTRIES) {
-    const oldestKey = metaCache.keys().next().value;
-    metaCache.delete(oldestKey!);
-  }
-  metaCache.set(key, entry);
-}
+// Meta and listing results live in the Vercel Data Cache (unstable_cache), not
+// only behind the CDN headers below. The CDN entry expires after s-maxage and
+// is per region and per deployment, so each expiry used to re-run these
+// queries and wake Neon. The Data Cache survives both; it is cleared by
+// revalidateContent()/revalidateCategories() (CACHE_TAGS.list) on admin writes.
+// (This replaces a per-instance in-memory Map that every cold start lost.)
+const DATA_CACHE_TAGS = [CACHE_TAGS.list];
 
 async function fetchMeta(contentType: ContentType): Promise<MetaEntry> {
   const [categories, distinctReadingTimes] = await Promise.all([
@@ -124,10 +111,10 @@ async function fetchMeta(contentType: ContentType): Promise<MetaEntry> {
     )
   );
 
-  const entry: MetaEntry = { categories, readingTimes, cachedAt: Date.now() };
-  setMetaInCache(contentType, entry);
-  return entry;
+  return { categories, readingTimes };
 }
+
+const getMeta = stableCache(fetchMeta, "api-content-meta-v1", DATA_CACHE_TAGS);
 
 function readingTimeBucketToSql(bucket: string): SQL<unknown> | null {
   if (bucket === "Under 5 min") return sql`${ContentTable.readingTime} <= 5`;
@@ -149,11 +136,170 @@ const META_HEADERS = {
 // the instance. Rate limiting belongs in the Vercel Firewall
 // (docs/neon-cu-runbook.md §2).
 
+type ListQuery = {
+  contentType: ContentType;
+  page: number;
+  limit: number;
+  search: string;
+  categorySlugs: string[];
+  tagSlug: string;
+  dateFrom: string;
+  dateTo: string;
+  readingTimeBuckets: string[];
+};
+
+type ListItem = {
+  id: string;
+  title: string;
+  slug: string;
+  summary: string | null;
+  featuredImage: string | null;
+  externalUrl: string | null;
+  readingTime: number | null;
+  publishedAt: string | null;
+  authorName: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  categorySlug: string | null;
+  tags: { id: string; name: string; slug: string }[];
+};
+
+/** The listing queries. Pure function of the validated params, so it can be cached. */
+async function fetchList(q: ListQuery): Promise<{ items: ListItem[]; total: number }> {
+  const { contentType, page, limit, search, categorySlugs, tagSlug, dateFrom, dateTo, readingTimeBuckets } = q;
+  const offset = (page - 1) * limit;
+
+  // ── Tag EXISTS subquery
+  const tagExistsSubquery = tagSlug
+    ? sql`EXISTS (
+        SELECT 1 FROM ${ContentTagsTable}
+        INNER JOIN ${TagsTable} ON ${ContentTagsTable.tagId} = ${TagsTable.id}
+        WHERE ${ContentTagsTable.contentId} = ${ContentTable.id}
+          AND ${TagsTable.slug} = ${tagSlug}
+      )`
+    : null;
+
+  // ── Reading time OR subquery
+  const readingTimeConds = readingTimeBuckets
+    .map(readingTimeBucketToSql)
+    .filter((c): c is SQL<unknown> => c !== null);
+
+  const readingTimeSql =
+    readingTimeConds.length > 0
+      ? sql`(${sql.join(readingTimeConds, sql` OR `)})`
+      : null;
+
+  // ── Base conditions
+  function buildBaseConditions(): SQL<unknown>[] {
+    const conds: SQL<unknown>[] = [
+      eq(ContentTable.contentType, contentType),
+      eq(ContentTable.status, "PUBLISHED"),
+    ];
+    if (search) {
+      conds.push(
+        sql`to_tsvector('english', ${ContentTable.title}) @@ plainto_tsquery('english', ${search})`
+      );
+    }
+    if (dateFrom) conds.push(gte(ContentTable.publishedAt, new Date(dateFrom)));
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setDate(to.getDate() + 1);
+      conds.push(lte(ContentTable.publishedAt, to));
+    }
+    if (tagExistsSubquery) conds.push(tagExistsSubquery);
+    if (readingTimeSql) conds.push(readingTimeSql);
+    return conds;
+  }
+
+  const mainConditions = buildBaseConditions();
+  if (categorySlugs.length > 0) {
+    mainConditions.push(
+      inArray(CategoriesTable.slug, categorySlugs as [string, ...string[]])
+    );
+  }
+
+  const countConditions = buildBaseConditions();
+  if (categorySlugs.length > 0) {
+    countConditions.push(
+      sql`${ContentTable.categoryId} IN (
+        SELECT id FROM ${CategoriesTable}
+        WHERE slug IN (${sql.join(categorySlugs.map((s) => sql`${s}`), sql`, `)})
+        AND content_type = ${contentType}
+      )`
+    );
+  }
+
+  // NOTE: this used to run an extra `select({ id })` query with the exact
+  // same join/where/order/limit/offset purely to collect contentIds for the
+  // tag lookup. `rows.map(r => r.id)` gives the same list for free.
+  const [rows, countResult] = await Promise.all([
+    db
+      .select({
+        id: ContentTable.id,
+        title: ContentTable.title,
+        slug: ContentTable.slug,
+        summary: ContentTable.summary,
+        featuredImage: ContentTable.featuredImage,
+        externalUrl: ContentTable.externalUrl,
+        readingTime: ContentTable.readingTime,
+        publishedAt: ContentTable.publishedAt,
+        authorName: ContentTable.authorName,
+        categoryId: ContentTable.categoryId,
+        categoryName: CategoriesTable.name,
+        categorySlug: CategoriesTable.slug,
+      })
+      .from(ContentTable)
+      .leftJoin(CategoriesTable, eq(ContentTable.categoryId, CategoriesTable.id))
+      .where(and(...mainConditions))
+      .orderBy(desc(ContentTable.createdAt))
+      .limit(limit)
+      .offset(offset),
+
+    db
+      .select({ total: count() })
+      .from(ContentTable)
+      .where(and(...countConditions)),
+  ]);
+
+  const contentIds = rows.map((r) => r.id);
+
+  const tagRows =
+    contentIds.length > 0
+      ? await db
+          .select({
+            contentId: ContentTagsTable.contentId,
+            tagId: TagsTable.id,
+            tagName: TagsTable.name,
+            tagSlug: TagsTable.slug,
+          })
+          .from(ContentTagsTable)
+          .innerJoin(TagsTable, eq(ContentTagsTable.tagId, TagsTable.id))
+          .where(inArray(ContentTagsTable.contentId, contentIds))
+      : [];
+
+  const tagMap: Record<string, ListItem["tags"]> = {};
+  for (const t of tagRows) {
+    (tagMap[t.contentId] ??= []).push({ id: t.tagId, name: t.tagName, slug: t.tagSlug });
+  }
+
+  return {
+    // Dates as ISO strings up front: a Data Cache hit returns JSON, so this
+    // keeps cached and uncached responses byte-identical.
+    items: rows.map((r) => ({
+      ...r,
+      publishedAt: r.publishedAt ? new Date(r.publishedAt).toISOString() : null,
+      tags: tagMap[r.id] ?? [],
+    })),
+    total: Number(countResult[0].total),
+  };
+}
+
+const getList = stableCache(fetchList, "api-content-list-v1", DATA_CACHE_TAGS);
+
 export async function GET(req: NextRequest) {
   const startTime = Date.now();
   const requestId = Math.random().toString(36).substring(2, 8);
 
-  // ✅ OPTIMIZATION 2: Only log in development
   if (DEBUG) {
     console.log(`[${requestId}] 🚀 Request started: ${req.url}`);
   }
@@ -171,8 +317,7 @@ export async function GET(req: NextRequest) {
 
     // ── Meta endpoint
     if (searchParams.get("meta") === "1") {
-      const cached = getMetaFromCache(contentType);
-      const meta = cached ?? (await fetchMeta(contentType));
+      const meta = await getMeta(contentType);
       return NextResponse.json(
         { categories: meta.categories, readingTimes: meta.readingTimes },
         { headers: META_HEADERS }
@@ -191,173 +336,43 @@ export async function GET(req: NextRequest) {
     const categorySlugs = categoryParam
       ? categoryParam.split(",").map((s) => s.trim()).filter(Boolean)
       : [];
-    const tagSlug = searchParams.get("tag")?.trim() ?? "";
-    const dateFrom = searchParams.get("dateFrom") ?? "";
-    const dateTo = searchParams.get("dateTo") ?? "";
     const readingTimeParam = searchParams.get("readingTime")?.trim() ?? "";
-    const readingTimeBuckets = readingTimeParam
-      ? readingTimeParam.split(",").map((s) => s.trim()).filter(Boolean)
-      : [];
+    const query: ListQuery = {
+      contentType,
+      page,
+      limit,
+      search,
+      categorySlugs,
+      tagSlug: searchParams.get("tag")?.trim() ?? "",
+      dateFrom: searchParams.get("dateFrom") ?? "",
+      dateTo: searchParams.get("dateTo") ?? "",
+      readingTimeBuckets: readingTimeParam
+        ? readingTimeParam.split(",").map((s) => s.trim()).filter(Boolean)
+        : [],
+    };
 
     if (DEBUG) {
-      console.log(`[${requestId}] 🔍 Filters:`, {
-        contentType,
-        search,
-        categorySlugs,
-        tagSlug,
-        dateFrom,
-        dateTo,
-        readingTimeBuckets,
-      });
+      console.log(`[${requestId}] 🔍 Filters:`, query);
     }
 
-    // ── Tag EXISTS subquery
-    const tagExistsSubquery = tagSlug
-      ? sql`EXISTS (
-          SELECT 1 FROM ${ContentTagsTable}
-          INNER JOIN ${TagsTable} ON ${ContentTagsTable.tagId} = ${TagsTable.id}
-          WHERE ${ContentTagsTable.contentId} = ${ContentTable.id}
-            AND ${TagsTable.slug} = ${tagSlug}
-        )`
-      : null;
-
-    // ── Reading time OR subquery
-    const readingTimeConds = readingTimeBuckets
-      .map(readingTimeBucketToSql)
-      .filter((c): c is SQL<unknown> => c !== null);
-
-    const readingTimeSql =
-      readingTimeConds.length > 0
-        ? sql`(${sql.join(readingTimeConds, sql` OR `)})`
-        : null;
-
-    // ── Base conditions
-    function buildBaseConditions(): SQL<unknown>[] {
-      const conds: SQL<unknown>[] = [
-        eq(ContentTable.contentType, contentType),
-        eq(ContentTable.status, "PUBLISHED"),
-      ];
-      if (search) {
-        conds.push(
-          sql`to_tsvector('english', ${ContentTable.title}) @@ plainto_tsquery('english', ${search})`
-        );
-      }
-      if (dateFrom) conds.push(gte(ContentTable.publishedAt, new Date(dateFrom)));
-      if (dateTo) {
-        const to = new Date(dateTo);
-        to.setDate(to.getDate() + 1);
-        conds.push(lte(ContentTable.publishedAt, to));
-      }
-      if (tagExistsSubquery) conds.push(tagExistsSubquery);
-      if (readingTimeSql) conds.push(readingTimeSql);
-      return conds;
-    }
-
-    const mainConditions = buildBaseConditions();
-    if (categorySlugs.length > 0) {
-      mainConditions.push(
-        inArray(CategoriesTable.slug, categorySlugs as [string, ...string[]])
-      );
-    }
-
-    const countConditions = buildBaseConditions();
-    if (categorySlugs.length > 0) {
-      countConditions.push(
-        sql`${ContentTable.categoryId} IN (
-          SELECT id FROM ${CategoriesTable}
-          WHERE slug IN (${sql.join(categorySlugs.map((s) => sql`${s}`), sql`, `)})
-          AND content_type = ${contentType}
-        )`
-      );
-    }
-
-    // ── Parallel queries
     const dbQueryStart = Date.now();
-    const cachedMeta = getMetaFromCache(contentType);
-
-    // NOTE: this used to run an extra `select({ id })` query with the exact
-    // same join/where/order/limit/offset purely to collect contentIds for the
-    // tag lookup. `rows.map(r => r.id)` gives the same list for free, so that
-    // query (and the serial round-trip it forced) is gone.
-    const [rows, countResult, meta] = await Promise.all([
-      db
-        .select({
-          id: ContentTable.id,
-          title: ContentTable.title,
-          slug: ContentTable.slug,
-          summary: ContentTable.summary,
-          featuredImage: ContentTable.featuredImage,
-          externalUrl: ContentTable.externalUrl,
-          readingTime: ContentTable.readingTime,
-          publishedAt: ContentTable.publishedAt,
-          authorName: ContentTable.authorName,
-          categoryId: ContentTable.categoryId,
-          categoryName: CategoriesTable.name,
-          categorySlug: CategoriesTable.slug,
-        })
-        .from(ContentTable)
-        .leftJoin(
-          CategoriesTable,
-          eq(ContentTable.categoryId, CategoriesTable.id)
-        )
-        .where(and(...mainConditions))
-        .orderBy(desc(ContentTable.createdAt))
-        .limit(limit)
-        .offset(offset),
-
-      db
-        .select({ total: count() })
-        .from(ContentTable)
-        .where(and(...countConditions)),
-
-      cachedMeta ? Promise.resolve(cachedMeta) : fetchMeta(contentType),
+    const [{ items, total }, meta] = await Promise.all([
+      getList(query),
+      getMeta(contentType),
     ]);
-
-    const contentIds = rows.map((r) => r.id);
-
-    const tagRows =
-      contentIds.length > 0
-        ? await db
-            .select({
-              contentId: ContentTagsTable.contentId,
-              tagId: TagsTable.id,
-              tagName: TagsTable.name,
-              tagSlug: TagsTable.slug,
-            })
-            .from(ContentTagsTable)
-            .innerJoin(TagsTable, eq(ContentTagsTable.tagId, TagsTable.id))
-            .where(inArray(ContentTagsTable.contentId, contentIds))
-        : [];
-
     const dbQueryTime = Date.now() - dbQueryStart;
-    const metaSource = cachedMeta ? "cache" : "database";
 
     if (DEBUG) {
       console.log(
-        `[${requestId}] 🗃️ DB done: ${dbQueryTime}ms | rows: ${rows.length} | total: ${countResult[0].total} | meta: ${metaSource}`
+        `[${requestId}] 🗃️ Data done: ${dbQueryTime}ms | rows: ${items.length} | total: ${total}`
       );
     }
 
-    // ── Build tag map
-    const tagMap: Record<
-      string,
-      { id: string; name: string; slug: string }[]
-    > = {};
-    for (const t of tagRows) {
-      if (!tagMap[t.contentId]) tagMap[t.contentId] = [];
-      tagMap[t.contentId].push({
-        id: t.tagId,
-        name: t.tagName,
-        slug: t.tagSlug,
-      });
-    }
-
-    const total = Number(countResult[0].total);
     const responseTime = Date.now() - startTime;
 
     // ── Suggestion candidates
     const suggestionCandidates = search
-      ? rows.map((r) => ({
+      ? items.map((r) => ({
           id: r.id,
           title: r.title,
           slug: r.slug,
@@ -367,16 +382,12 @@ export async function GET(req: NextRequest) {
         }))
       : [];
 
-    if (DEBUG) {
-      console.log(`[${requestId}] ✅ Done: ${responseTime}ms total`);
-    }
-
     return NextResponse.json(
       {
-        items: rows.map((r) => ({ ...r, tags: tagMap[r.id] ?? [] })),
+        items,
         totalItems: total,
         totalPages: Math.ceil(total / limit),
-        hasMore: offset + rows.length < total,
+        hasMore: offset + items.length < total,
         page,
         limit,
         categories: meta.categories,
@@ -386,7 +397,6 @@ export async function GET(req: NextRequest) {
           requestId,
           responseTime,
           parallelDbTime: dbQueryTime,
-          metaSource,
         },
       },
       { headers: CONTENT_HEADERS }

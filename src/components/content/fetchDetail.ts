@@ -1,7 +1,8 @@
 // components/content/fetchDetail.ts
 import { cache } from "react";
+import { stableCache } from "@/lib/data-cache";
 import { db } from "@/db";
-import { DETAIL_PREFIXES } from "@/lib/revalidate";
+import { CACHE_TAGS, DETAIL_PREFIXES, contentSlugTag } from "@/lib/revalidate";
 import {
   CategoriesTable,
   ContentTable,
@@ -97,8 +98,10 @@ function typesForRoute(routePrefix: string) {
  *                    copy of the blog post (pure crawl waste, and duplicate
  *                    content for SEO). Must be a string so cache() can key on it.
  */
-export const fetchContentDetailFromDB = cache(
-  async (slug: string, routePrefix: string): Promise<DetailResponse | null> => {
+async function fetchContentDetailUncached(
+  slug: string,
+  routePrefix: string
+): Promise<DetailResponse | null> {
   const allowedTypes = typesForRoute(routePrefix);
   if (allowedTypes.length === 0) {
     throw new Error(`fetchContentDetailFromDB: unknown route prefix ${routePrefix}`);
@@ -219,6 +222,32 @@ export const fetchContentDetailFromDB = cache(
     console.error("[fetchContentDetailFromDB]", error);
     throw error;
   }
+}
+
+/**
+ * Cached detail lookup.
+ *
+ * Two cache layers:
+ *  - react cache(): generateMetadata and the page body share one call per render.
+ *  - unstable_cache (Vercel Data Cache): the result, including `null` for an
+ *    unknown slug, persists across requests AND deployments. The ISR page cache
+ *    is reset on every deploy, so without this each crawler walking ~1,950
+ *    articles and junk URLs re-woke Neon after every deploy, one first-hit at a
+ *    time, keeping the compute out of autosuspend most of the day.
+ *
+ * Invalidated by revalidateContent() (per-slug tag, or the whole detail tag when
+ * the published set changes) and revalidateCategories({ detailPages: true }).
+ * Errors are never cached: the function throws and the next request retries.
+ */
+export const fetchContentDetailFromDB = cache(
+  (slug: string, routePrefix: string): Promise<DetailResponse | null> => {
+    const tags: string[] = [CACHE_TAGS.detail];
+    const slugTag = contentSlugTag(slug);
+    if (slugTag) tags.push(slugTag);
+    return stableCache(fetchContentDetailUncached, "content-detail-v1", tags)(
+      slug,
+      routePrefix
+    );
   }
 );
 

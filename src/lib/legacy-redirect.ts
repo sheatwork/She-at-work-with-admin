@@ -20,10 +20,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { cache } from "react";
+import { stableCache } from "@/lib/data-cache";
 import { db } from "@/db";
 import { ContentTable } from "@/db/schema";
 import { and, eq, or, sql } from "drizzle-orm";
-import { DETAIL_PREFIXES } from "@/lib/revalidate";
+import { CACHE_TAGS, DETAIL_PREFIXES } from "@/lib/revalidate";
 
 /**
  * Shape of a plausible WordPress permalink.
@@ -42,40 +43,50 @@ const LEGACY_SLUG_RE = /^[a-z0-9][a-z0-9-]{2,200}$/;
  *          is malformed or matches no published row.
  *
  * Wrapped in `cache()` so a page and its `generateMetadata` share one query.
- * The pages that call this set `revalidate = false`, so in practice each
- * distinct legacy slug costs exactly one database query, ever — after that the
- * redirect is served from the ISR cache with no function invocation at all.
+ * The pages that call this set `revalidate = false`, and the lookup itself is
+ * kept in the Vercel Data Cache, so each distinct legacy slug costs one database
+ * query until the published set changes, even across deployments.
  */
 export const findLegacyTarget = cache(
   async (slug: string): Promise<string | null> => {
     if (!LEGACY_SLUG_RE.test(slug)) return null;
-
-    const [row] = await db
-      .select({
-        slug: ContentTable.slug,
-        contentType: ContentTable.contentType,
-      })
-      .from(ContentTable)
-      .where(
-        and(
-          eq(ContentTable.status, "PUBLISHED"),
-          or(
-            // Row kept its original slug (never suffixed).
-            eq(ContentTable.slug, slug),
-            // Row was suffixed with a WP post id or a creation timestamp.
-            sql`regexp_replace(${ContentTable.slug}, '-\\d+$', '') = ${slug}`
-          )
-        )
-      )
-      .limit(1);
-
-    if (!row) return null;
-
-    // Reuse the one contentType → route map the revalidation layer already
-    // owns, so a new content type can never be handled in two different places.
-    const prefix = DETAIL_PREFIXES[row.contentType]?.[0];
-    if (!prefix) return null;
-
-    return `${prefix}/${row.slug}`;
+    // Vercel Data Cache: survives deployments (the ISR page cache does not), so
+    // a legacy URL, hit or miss, costs one query for as long as the published
+    // set is unchanged. Cleared by revalidateContent({ publishedSetChanged }).
+    return cachedLookup(slug);
   }
 );
+
+async function lookupLegacyTarget(slug: string): Promise<string | null> {
+  const [row] = await db
+    .select({
+      slug: ContentTable.slug,
+      contentType: ContentTable.contentType,
+    })
+    .from(ContentTable)
+    .where(
+      and(
+        eq(ContentTable.status, "PUBLISHED"),
+        or(
+          // Row kept its original slug (never suffixed).
+          eq(ContentTable.slug, slug),
+          // Row was suffixed with a WP post id or a creation timestamp.
+          sql`regexp_replace(${ContentTable.slug}, '-\\d+$', '') = ${slug}`
+        )
+      )
+    )
+    .limit(1);
+
+  if (!row) return null;
+
+  // Reuse the one contentType → route map the revalidation layer already
+  // owns, so a new content type can never be handled in two different places.
+  const prefix = DETAIL_PREFIXES[row.contentType]?.[0];
+  if (!prefix) return null;
+
+  return `${prefix}/${row.slug}`;
+}
+
+const cachedLookup = stableCache(lookupLegacyTarget, "legacy-target-v1", [
+  CACHE_TAGS.legacy,
+]);
