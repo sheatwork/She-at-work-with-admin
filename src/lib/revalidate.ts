@@ -8,7 +8,27 @@
 // while keeping the cache — and therefore the Neon compute savings — intact.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
+
+/**
+ * Vercel Data Cache tags for the public read paths (unstable_cache). Unlike the
+ * ISR page cache these entries survive deployments, so they must be cleared
+ * here on every write that could change what they hold.
+ */
+export const CACHE_TAGS = {
+  /** fetchContentDetailFromDB results, including cached `null` (unknown slug). */
+  detail: "content-detail",
+  /** findLegacyTarget results, including cached `null`. */
+  legacy: "legacy-target",
+  /** /api/content listing + meta responses. */
+  list: "content-list",
+} as const;
+
+/** Per-slug detail tag, or null when the slug is too long to be a valid tag. */
+export function contentSlugTag(slug: string): string | null {
+  const tag = `content:${slug}`;
+  return tag.length <= 256 ? tag : null;
+}
 
 /** contentType → public listing routes that render it. */
 const LISTING_ROUTES: Record<string, string[]> = {
@@ -47,6 +67,19 @@ export function revalidateContent(
 ) {
   // The home page pulls BLOG + ENTRECHAT carousels and site settings.
   revalidatePath("/");
+
+  // Data Cache (survives deploys). Listing API results can include any row.
+  revalidateTag(CACHE_TAGS.list);
+  if (slug) {
+    const slugTag = contentSlugTag(slug);
+    if (slugTag) revalidateTag(slugTag);
+  }
+  if (opts.publishedSetChanged) {
+    // A cached `null` (slug probed before publish) or a related-items list may
+    // now be wrong anywhere, and a cached legacy 404 may now have a target.
+    revalidateTag(CACHE_TAGS.detail);
+    revalidateTag(CACHE_TAGS.legacy);
+  }
 
   // Legacy-permalink lookups (app/[legacySlug], app/blog/[legacySlug]) cache
   // their 308 or 404 indefinitely. Clearing them makes every cached legacy URL
@@ -103,6 +136,8 @@ export function revalidateCategories(
   opts: { detailPages?: boolean } = {}
 ) {
   revalidatePath("/");
+  revalidateTag(CACHE_TAGS.list); // /api/content meta carries the category list
+  if (opts.detailPages) revalidateTag(CACHE_TAGS.detail);
 
   const types = contentType
     ? [contentType]
